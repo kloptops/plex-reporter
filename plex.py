@@ -21,6 +21,11 @@ except ImportError:
     from urllib.parse import urlparse, parse_qs
 
 
+class PlexException(Exception): pass
+class PlexServerException(PlexException): pass
+class PlexMediaException(PlexException): pass
+
+
 class BasketOfHandles(object):
     def __init__(self, creator, max_handles=10):
         self.creator = creator
@@ -73,6 +78,228 @@ class BasketOfHandles(object):
         self.handles.clear()
         self.handle_queue[:] = []
 
+
+class PlexServerConnection(object):
+    def __init__(self, host='localhost', port=32400):
+        self.host = host
+        self.port = port
+        self.enabled = False
+        self.server_info = {}
+        self.metadata_cache = {}
+        self.check_connection()
+
+    def check_connection(self):
+        # Check if medialookup is enabled, and test the connection if so
+        logger = logging.getLogger(self.__class__.__name__ + '.' + 'check_connection')
+        logger.debug("Called check_connection")
+        try:
+            check_req=requests.get('http://{host}:{port}/servers'.format(
+                host=self.host, port=self.port))
+
+            check_soup = BeautifulSoup(check_req.text)
+
+            server_info = check_soup('server')[0]
+
+            self.server_info = {}
+            self.server_info['name'] = server_info['name']
+            self.server_info['host'] = server_info['host']
+            self.server_info['port'] = server_info['port']
+            self.server_info['address'] = server_info['address']
+            self.server_info['id'] = server_info['machineidentifier']
+            self.server_info['version'] = server_info['version']
+
+            self.enabled = True
+
+            logger.info("Media connection enabled!")
+
+        except requests.ConnectionError as err:
+            logger.error('Error checking media server: ' + str(err))
+            self.enabled = False
+            logger.warning("Media connection disabled!")
+
+    def fetch_metadata(self, key):
+        assert isinstance(key, int)
+        logger = logging.getLogger(self.__class__.__name__ + '.' + 'fetch_metadata')
+
+        if not self.enabled:
+            raise PlexServerException(
+                'Unable to query metadata, media connection disabled')
+
+        if key in self.metadata_cache:
+            return self.metadata_cache[key]
+
+        metadata_req = requests.get('http://{host}:{port}/library/metadata/{key}'.format(
+            host=self.host, port=self.port, key=key))
+
+        if metadata_req.status_code != 200:
+            raise PlexServerException(
+                'Unable to query metadata for {key}: [{status_code}] - {reason}'.format(
+                key=key, status_code=metadata_req.status_code, reason=metadata_req.reason))
+
+        self.metadata_cache[key] = metadata_req.text
+        return self.metadata_cache[key]
+
+
+class PlexMediaLibraryObject(object):
+    def __init__(self, key=0, xml=None, soup=None):
+        assert isinstance(key, int)
+        self._key = key
+        self.set_xml(xml, soup)
+
+    def get_key(self):
+        return self._key
+    key = property(get_key)
+
+    def clear(self):
+        if hasattr(self, '_xml'):
+            self._xml = None
+
+    def set_xml(self, xml, soup=None):
+        self.clear()
+        if xml is None:
+            self._xml = None
+        else:
+            self._parse_xml(xml, soup)
+    def get_xml(self):
+        return self._xml
+    xml = property(get_xml, set_xml)
+
+    def _parse_xml(self, xml, soup=None):
+        if soup is None:
+            soup = BeautifulSoup(xml)
+
+        tag = soup.find(ratingkey=True)
+        if int(tag['ratingkey']) != self.key:
+            raise PlexMediaException(
+                'Incorrect xml metadata, passed key {0}, xml key {1}'.format(
+                self.key, int(tag['ratingkey'])))
+
+
+class PlexMediaVideoObject(PlexMediaLibraryObject):
+    def __init__(self, key=0, xml=None, soup=None):
+        super(PlexMediaVideoObject, self).__init__(key, xml, soup)
+
+    def clear(self):
+        super(PlexMediaVideoObject, self).clear()
+        self.rating = ''
+        self.duration = 0
+        self.year = '1900'
+        self.title = ''
+        self.summary = ''
+
+        self.media = {}
+        self.parts = []
+
+    def _parse_xml(self, xml, soup=None):
+        if soup is None:
+            soup = BeautifulSoup(xml)
+        super(PlexMediaVideoObject, self)._parse_xml(xml, soup)
+        video_tag = soup.find('video')
+
+        self.rating = video_tag.get('contentrating', '')
+        self.duration = video_tag.get('duration', 0)
+        self.year = video_tag.get('year', '1900')
+        self.title = video_tag.get('title', '')
+        self.summary = video_tag.get('summary', '')
+
+        media_tags = video_tag.find_all('media', id=True)
+        for media_tag in media_tags:
+            media_id = media_tag['id']
+            self.media[media_id] = []
+            part_tags = media_tag.find_all('part', id=True)
+            for part_tag in part_tags:
+                part_id = part_tag['id']
+                part = {'id': part_id}
+                if part_tag.has_attr('file'):
+                    part['file'] = part_tag['file']
+                if part_tag.has_attr('key'):
+                    part['key'] = part_tag['key']
+                self.media[media_id].append(part)
+                self.parts.append(part_id)
+
+
+class PlexMediaEpisodeObject(PlexMediaVideoObject):
+    def __init__(self, key=0, xml=None, soup=None):
+        super(PlexMediaEpisodeObject, self).__init__(key, xml)
+
+    def clear(self):
+        super(PlexMediaEpisodeObject, self).clear()
+        self.series_key = 0
+        self.series_title = 'Unknown'
+        self.season_key = 0
+        self.season = 0
+        self.episode = 0
+
+    def _parse_xml(self, xml, soup=None):
+        if soup is None:
+            soup = BeautifulSoup(xml)
+        super(PlexMediaEpisodeObject, self)._parse_xml(xml, soup)
+        video_tag = soup.find('video')
+
+        self.series_key = video_tag.get('grandparentratingkey', 0)
+        self.series_title = video_tag.get('grandparenttitle', 'Unknown')
+        self.season_key = video_tag.get('parentratingkey', 0)
+        self.season = video_tag.get('parentindex', 0)
+        self.episode = video_tag.get('index', 0)
+
+    def __repr__(self):
+        return '<{us.__class__.__name__} key={us.key}, series_title={us.series_title!r}, season={us.season}, episode={us.episode}, title={us.title!r}>'.format(
+            us=self)
+
+
+class PlexMediaMovieObject(PlexMediaVideoObject):
+    def __init__(self, key=0, xml=None, soup=None):
+        super(PlexMediaMovieObject, self).__init__(key, xml)
+
+    def clear(self):
+        super(PlexMediaMovieObject, self).clear()
+
+    def _parse_xml(self, xml, soup=None):
+        if soup is None:
+            soup = BeautifulSoup(xml)
+        super(PlexMediaMovieObject, self)._parse_xml(xml, soup)
+
+    def __repr__(self):
+        return '<{us.__class__.__name__} key={us.key}, title={us.title!r} year={us.year}>'.format(
+            us=self)
+
+
+def PlexMediaObject(conn, key, xml=None, soup=None):
+    if key is not None and xml is not None:
+        raise TypeError(
+            "Require argument 'key' or 'xml' must not be None")
+
+    if key is None:
+        if soup is None:
+            soup = BeautifulSoup(xml)
+        container_tag = soup.find(ratingkey=True)
+        if container_tag is None:
+            raise PlexMediaException(
+                'Invalid xml passed, ratingKey="key" missing!')
+        key = int(container_tag.get('ratingkey', 0))
+
+    elif xml is None:
+        if conn is None:
+            raise TypeError(
+                'Argument conn required if xml is None')
+        xml = conn.fetch_metadata(key)
+
+    if soup is None:
+        soup = BeautifulSoup(xml)
+
+    container_tag = soup.find(ratingkey=True)
+    if container_tag.name == 'video':
+        video_type = container_tag.get('type', None)
+        if video_type == 'episode':
+            return PlexMediaEpisodeObject(key, xml, soup)
+        elif video_type == 'movie':
+            return PlexMediaMovieObject(key, xml, soup)
+        else:
+            raise PlexMediaException(
+                'Unknown video type {0!r}'.format(video_type))
+    else:
+        raise PlexMediaException(
+            'Unknown media type for {0}'.format(key))
 
 
 class PlexSimpleLogParser(object):

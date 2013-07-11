@@ -37,11 +37,14 @@ Icon?
 ehthumbs.db
 Thumbs.db
 
-# Python 3 Pycache #
-####################
+# Python ignores #
+##################
 /__pycache__/
+*.pyc
+*.pyo
 
 # Project Ignores #
 ###################
 *.bak
 *.sublime-*
+/logs/*.cfg

@@ -21,6 +21,34 @@ except ImportError:
     from urllib.parse import urlparse, parse_qs
 
 
+RATING_ANYONE = 0
+RATING_CHILD  = 1
+RATING_TEEN   = 2
+RATING_ADULT  = 3
+RATING_UNKNOWN= 4
+
+content_ratings = {
+    # TV ratings, obvious by the TV- prefix... o_o
+    'TV-Y':  RATING_ANYONE,
+    'TV-Y7': RATING_ANYONE,
+    'TV-G':  RATING_CHILD,
+    'TV-PG': RATING_CHILD,
+    'TV-14': RATING_TEEN,
+    'TV-MA': RATING_ADULT,
+    'NC-17': RATING_ADULT,
+
+    # Movie ratings
+    'G':     RATING_ANYONE,
+    'PG':    RATING_CHILD,
+    'PG-13': RATING_TEEN,
+    'R':     RATING_ADULT,
+
+    # Hack
+    '':      RATING_UNKNOWN,
+    }
+
+
+
 class PlexException(Exception): pass
 class PlexServerException(PlexException): pass
 class PlexMediaException(PlexException): pass
@@ -86,6 +114,8 @@ class PlexServerConnection(object):
         self.enabled = False
         self.server_info = {}
         self.metadata_cache = {}
+        self.page_cache = {}
+
         self.check_connection()
 
     def check_connection(self):
@@ -140,6 +170,29 @@ class PlexServerConnection(object):
         return self.metadata_cache[key]
 
 
+    def fetch(self, path):
+        logger = logging.getLogger(self.__class__.__name__ + '.' + 'fetch')
+
+        if not self.enabled:
+            raise PlexServerException(
+                'Unable to fetch data, media connection disabled')
+
+        if path in self.page_cache:
+            return self.page_cache[path]
+
+        page_req = requests.get('http://{host}:{port}/{path}'.format(
+            host=self.host, port=self.port, path=path))
+
+        if page_req.status_code != 200:
+            raise PlexServerException(
+                'Unable to query path {path}: [{status_code}] - {reason}'.format(
+                path=path, status_code=page_req.status_code, reason=page_req.reason))
+
+        self.page_cache[path] = page_req.text
+        return self.page_cache[path]
+
+
+
 class PlexMediaLibraryObject(object):
     def __init__(self, key=0, xml=None, soup=None):
         assert isinstance(key, int)
@@ -182,6 +235,7 @@ class PlexMediaVideoObject(PlexMediaLibraryObject):
     def clear(self):
         super(PlexMediaVideoObject, self).clear()
         self.rating = ''
+        self.rating_code = RATING_UNKNOWN
         self.duration = 0
         self.year = '1900'
         self.title = ''
@@ -197,11 +251,17 @@ class PlexMediaVideoObject(PlexMediaLibraryObject):
         video_tag = soup.find('video')
 
         self.rating = video_tag.get('contentrating', '')
+        if self.rating in content_ratings:
+            self.rating_code = content_ratings[self.rating]
+        else:
+            self.rating_code = RATING_UNKNOWN
+
         self.duration = video_tag.get('duration', 0)
         self.year = video_tag.get('year', '1900')
         self.title = video_tag.get('title', '')
         self.summary = video_tag.get('summary', '')
 
+        ## TODO: Make this better, but I haven't really needed this yet so I'm not really worried.
         media_tags = video_tag.find_all('media', id=True)
         for media_tag in media_tags:
             media_id = media_tag['id']

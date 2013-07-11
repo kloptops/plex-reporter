@@ -68,7 +68,6 @@ def main():
         os.mkdir('logs')
 
     config_file = os.path.join('logs', 'state.cfg')
-    lock_file = os.path.join('logs', '__lock__')
 
     if os.path.isfile(config_file):
         with open(config_file, 'rU') as file_handle:
@@ -77,7 +76,8 @@ def main():
         config = {
             'mode': 'text',
             'last_datetime': '2000-1-1-0-0-0-0',
-            'log_filename': '{name}-{datetime[0]:04d}-{datetime[1]:02d}-{datetime[2]:02d}.log',
+            'log_filename': 'plex-media-server-{datetime[0]:04d}-{datetime[1]:02d}-{datetime[2]:02d}.log',
+            'log_match': 'plex-media-server-*.log*',
             }
 
     log_file_template = os.path.join(
@@ -125,7 +125,7 @@ def main():
     # BasketOfHandles handles our open files for us, keeping only 5 open at a time.
     with BasketOfHandles(log_open, 5) as basket:
         for line_body in all_lines:
-            log_file_name = log_file_template.format(name='plex-media-server', **line_body)
+            log_file_name = log_file_template.format(**line_body)
 
             file_handle = basket.open(log_file_name, 'a')
 

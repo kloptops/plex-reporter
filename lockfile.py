@@ -1,7 +1,7 @@
 #/usr/bin/env python
 # -*- coding: utf-8 -*-
 # -*- python -*-
-
+from __future__ import print_function
 
 """
 plex-log-saver.py
@@ -105,26 +105,27 @@ class LockFile(object):
 
     def __enter__(self):
         if self.file_handle is None:
-            return self.acquire()
+            self.acquire()
+            return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.file_handle is not None:
-            return self.release()
+            self.release()
 
     def __del__(self):
         if self.file_handle is not None:
-            return self.release()
+            self.release()
 
 
 if __name__ == '__main__':
     with LockFile() as lf:
         print("Got lock, now sleeping...")
-        time.sleep(10)
+        time.sleep(3)
         print("Done!")
     time.sleep(0.1)
 
-    for i in range(10):
+    for i in range(100):
         with LockFile() as lf:
             print("Trying again...", i)
-            time.sleep(2)
+            time.sleep(.5)
         time.sleep(0.1)

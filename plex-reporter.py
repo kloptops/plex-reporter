@@ -1,6 +1,7 @@
 #/usr/bin/env python
 # -*- coding: utf-8 -*-
 # -*- python -*-
+from __future__ import print_function
 
 """
 plex-reporter.py
@@ -24,6 +25,8 @@ from plex import PlexLogParser, PlexServerConnection, PlexMediaObject
 def event_categorize(event):
     # Only works with requests
     result = []
+    result.append("{0:04}-{1:02}-{2:02}".format(*event['datetime']))
+    
     if 'request_ip' in event:
         result.append(event['request_ip'])
 
@@ -49,7 +52,11 @@ def event_categorize(event):
 
 def LogFileLoader(log_file):
     results = []
-
+    wanted_urls = [
+        '/:/timeline',
+        '/video/:/transcode/universal/start',
+        '/video/:/transcode/universal/stop',    
+        ]
     if log_file.endswith('.gz'):
         open_cmd = gzip.open
     else:
@@ -62,6 +69,12 @@ def LogFileLoader(log_file):
             # For now we are only really interested in url requests
             if 'url_path' not in line_body:
                 continue
+
+            # for wanted_url in wanted_urls:
+            #     if line_body['url_path'].startswith(wanted_url):
+            #         break
+            # else:
+            #     continue
 
             results.append(line_body)
 
@@ -102,6 +115,7 @@ def main():
 
     log_file_match = os.path.join('logs', config['log_match'])
     for log_file in file_glob(log_file_match):
+        print("Log - {}".format(log_file))
         log_lines = LogFileLoader(log_file)
 
         for line_body in log_lines:
@@ -111,7 +125,8 @@ def main():
 
     print('Found {0} unique events'.format(len(categories)))
     for category_id, category in sorted(categories.items(), key=lambda x: x[0]):
-        print(repr(category_id).encode(sys.stdout.encoding, errors='replace'))
+        #print(repr(category_id).encode(sys.stdout.encoding, errors='replace'))
+        print(repr(category_id))
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 #/usr/bin/env python
 # -*- coding: utf-8 -*-
 # -*- python -*-
+from __future__ import print_function
 
 """
 tool-check-plexdb.py

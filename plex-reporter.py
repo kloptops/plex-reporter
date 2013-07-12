@@ -11,14 +11,13 @@ Copyright (c) 2013 Jacob Smith. All rights reserved.
 """
 
 import os
-import sys
 import re
-import logging
+import sys
 import json
 import gzip
-from glob import glob as file_glob
-
+import logging
 from lockfile import LockFile
+from glob import glob as file_glob
 from plex import PlexLogParser, PlexServerConnection, PlexMediaObject
 
 
@@ -52,6 +51,13 @@ def event_categorize(event):
 
 def LogFileLoader(log_file):
     results = []
+    skip_urls = [
+        '/:/plugins',
+        '/library/metadata',
+        '/web',
+        '/system',
+        ]
+
     wanted_urls = [
         '/:/timeline',
         '/video/:/transcode/universal/start',
@@ -70,6 +76,13 @@ def LogFileLoader(log_file):
             if 'url_path' not in line_body:
                 continue
 
+            skip = False
+            for skip_url in skip_urls:
+                if line_body['url_path'].startswith(skip_url):
+                    skip = True
+            if skip:
+                continue
+
             # for wanted_url in wanted_urls:
             #     if line_body['url_path'].startswith(wanted_url):
             #         break
@@ -79,6 +92,39 @@ def LogFileLoader(log_file):
             results.append(line_body)
 
     return results
+
+
+def diff_dict(dict_a, dict_b, ignore_list=[]):
+    all_keys = list(set(dict_b.keys()) + set(dict_a.keys()))
+    all_keys.sort()
+    result_a = []
+    result_b = []
+    for key in all_keys:
+        if key in ignore_list:
+            continue
+        if key not in dict_b:
+            result_a.append((key, dict_a[key]))
+        elif key not in dict_a:
+            result_b.append((key, dict_b[key]))
+        else:
+            if dict_a[key] != dict_b[key]:
+                result_a.append((key, dict_a[key]))
+                result_b.append((key, dict_b[key]))
+    return dict(result_a), dict(result_b)
+
+
+def merge_split_events(all_events):
+    all_events.sort(key=lambda event: event['datetime'])
+    last_event = all_events[0]
+    for event in all_events[1:]:
+        diff_a, diff_b = diff_dict(last_event['url_query'], event['url_query'], ['time'])
+        if len(diff_a) == 0:
+            continue
+        else:
+            yield 
+            last_event = event
+
+
 
 def main():
     import json
@@ -124,9 +170,11 @@ def main():
             category.append(line_body)
 
     print('Found {0} unique events'.format(len(categories)))
-    for category_id, category in sorted(categories.items(), key=lambda x: x[0]):
-        #print(repr(category_id).encode(sys.stdout.encoding, errors='replace'))
-        print(repr(category_id))
+    for category_id in sorted(categories.keys()):
+        print(json.dumps(category_id))
+        if '/:/timeline' in category_id:
+            for event in split_events(categories[category_id]):
+                print('   ', json.dumps(event, sort_keys=True))
 
 
 if __name__ == '__main__':

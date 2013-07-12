@@ -14,12 +14,12 @@ import os
 ## Uncomment the next line if you plan on using this script in the windows
 ## task scheduler
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
-import sys
 import re
-import logging
-from glob import glob as file_glob
+import sys
 import json
+import logging
 import datetime
+from glob import glob as file_glob
 
 try:
     from urlparse import urlparse, parse_qs

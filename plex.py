@@ -27,6 +27,7 @@ RATING_CHILD  = 1
 RATING_TEEN   = 2
 RATING_ADULT  = 3
 RATING_UNKNOWN= 4
+RATING_NAMES = ['Anyone', 'Child', 'Teen', 'Adult', 'Unknown']
 
 content_ratings = {
     # TV ratings, obvious by the TV- prefix... o_o

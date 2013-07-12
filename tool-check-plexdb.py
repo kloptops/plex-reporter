@@ -2,6 +2,13 @@
 # -*- coding: utf-8 -*-
 # -*- python -*-
 
+"""
+tool-check-plexdb.py
+
+Created by Jacob Smith on 2013-07-11.
+Copyright (c) 2013 Jacob Smith. All rights reserved.
+"""
+
 import os
 import sys
 import re

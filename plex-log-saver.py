@@ -127,7 +127,7 @@ def main():
         for line_body in all_lines:
             log_file_name = log_file_template.format(**line_body)
 
-            file_handle = basket.open(log_file_name, 'a')
+            file_handle = basket.open(log_file_name, 'at')
 
             json.dump(line_body, file_handle, sort_keys=True)
             file_handle.write('\n')
@@ -142,4 +142,6 @@ def main():
     logging.info('Finished.')
 
 if __name__ == '__main__':
-    main()
+    from lockfile import LockFile
+    with LockFile() as lf:
+        main()

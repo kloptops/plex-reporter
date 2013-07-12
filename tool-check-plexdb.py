@@ -7,6 +7,7 @@ import sys
 import re
 from bs4 import BeautifulSoup
 
+from lockfile import LockFile
 from plex import PlexServerConnection
 
 
@@ -40,4 +41,6 @@ def main():
 
 
 if __name__ == '__main__':
-	main()
+    # Probably doesn't need this...
+    with LockFile() as lf:
+	   main()

@@ -7,8 +7,10 @@ import sys
 import re
 import logging
 import json
+import gzip
 from glob import glob as file_glob
 
+from lockfile import LockFile
 from plex import PlexLogParser, PlexServerConnection, PlexMediaObject
 
 
@@ -41,7 +43,12 @@ def event_categorize(event):
 def LogFileLoader(log_file):
     results = []
 
-    with open(log_file, 'rU') as file_handle:
+    if log_file.endswith('.gz'):
+        open_cmd = gzip.open
+    else:
+        open_cmd = open
+
+    with open_cmd(log_file, 'rt') as file_handle:
         for line in file_handle:
             line_body = json.loads(line)
 
@@ -52,11 +59,6 @@ def LogFileLoader(log_file):
             results.append(line_body)
 
     return results
-
-
-def process_log_line(line_body):
-
-    category = event_categorize(line_body)
 
 def main():
     import json
@@ -101,9 +103,10 @@ def main():
             category.append(line_body)
 
     print('Found {0} unique events'.format(len(categories)))
-    for category_id, category in categories.items():
+    for category_id, category in sorted(categories.items(), key=lambda x: x[0]):
         print(repr(category_id).encode(sys.stdout.encoding, errors='replace'))
 
 
 if __name__ == '__main__':
-    main()
+    with LockFile() as lf:
+        main()

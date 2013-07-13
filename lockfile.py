@@ -9,7 +9,7 @@ plex-log-saver.py
 Created by Jacob Smith on 2013-07-10.
 Copyright (c) 2013 Jacob Smith. All rights reserved.
 
-Mostly 'original' code by me, ported from memory of a perl script i wrote years ago.
+Mostly 'original' code by me, ported from memory of a perl script I wrote years ago.
 Couldn't remember the O_EXCL part, found it on Evan Fosmark's excellent filelock code.
 Not sure what copyright would apply here, so I am including evan's here.
 

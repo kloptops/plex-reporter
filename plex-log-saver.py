@@ -25,9 +25,6 @@ from plex import PlexLogParser, BasketOfHandles, config_load, config_save
 from lockfile import LockFile
 
 
-## TODO: really need to pull all this log parsing logic into this file
-##   and make it 1 class, this doesn't need to be so dynamic. Or
-##   atleast only the basic log parser?
 class PlexSuperLogParser(PlexLogParser):
     def __init__(self, last_datetime, *args, **kwargs):
         super(PlexSuperLogParser, self).__init__(**kwargs)
@@ -37,7 +34,9 @@ class PlexSuperLogParser(PlexLogParser):
         # We don't want old records
         if line_body['datetime'] <= self.last_datetime:
             return False
-        if line_body['content'].startswith(' *'):
+
+        # We don't want the useless lines following request lines.
+        if 'content' in line_body and line_body['content'].startswith(' *'):
             return False
 
         return super(PlexSuperLogParser, self).line_body_filter(line_body)
@@ -70,7 +69,6 @@ def main():
         return
 
 
-    # 
     log_file_template = os.path.join(
         'logs', config['log_file_name'])
 
@@ -82,8 +80,7 @@ def main():
 
     last_datetime = tuple(map(int, config['plex_last_datetime'].split('-')))
 
-    log_parser = PlexSuperLogParser(last_datetime, strict=False)
-    log_parser.wanted_urls = []
+    log_parser = PlexSuperLogParser(last_datetime)
 
     all_lines = []
 
@@ -101,7 +98,6 @@ def main():
 
     # Sort the logs based on datetime
     all_lines.sort(key=lambda line_body: line_body['datetime'])
-
 
     time_diff = datetime_diff(all_lines[0]['datetime'], last_datetime)
 

@@ -272,7 +272,6 @@ class PlexServerConnection(object):
         return self.page_cache[path]
 
 
-
 class PlexMediaLibraryObject(object):
     def __init__(self, key=0, xml=None, soup=None):
         assert isinstance(key, int)
@@ -450,9 +449,10 @@ def plex_media_object(conn, key, xml=None, soup=None):
             'Unknown media type for {0}'.format(key))
 
 
-class PlexSimpleLogParser(object):
+class PlexLogParser(object):
     def __init__(self):
         pass
+
 
     def _re_search(self, regex, text):
         match = re.search(regex, text)
@@ -462,6 +462,7 @@ class PlexSimpleLogParser(object):
             self._last = None
         return self._last
 
+
     def _re_match(self, regex, text):
         match = re.search(regex, text)
         if match:
@@ -469,6 +470,7 @@ class PlexSimpleLogParser(object):
         else:
             self._last = None
         return self._last
+
 
     def _parse_datetime(self, in_dict):
         # give us a nice sortable time :)
@@ -494,6 +496,12 @@ class PlexSimpleLogParser(object):
         del in_dict['time']
 
 
+    def _squish_dict(self, in_dict):
+        for key, value in in_dict.items():
+            if isinstance(value, list) and len(value) == 1:
+                in_dict[key] = value[0]
+
+
     def _parse_base(self, real_file_name, file_handle):
         file_name = os.path.basename(real_file_name)
         for line_no, line_text in enumerate(file_handle, 1):
@@ -511,6 +519,25 @@ class PlexSimpleLogParser(object):
             line_body.update(self._last)
 
             self._parse_datetime(line_body)
+
+            if self._re_match((
+                    r'Request: (?P<method>\w+) (?P<url>.*)'
+                    r' \[(?:::ffff:)?'
+                    r'(?P<request_ip>[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)'
+                    r'(?::(?P<request_port>[0-9]+))?\] .*'),
+                    line_body['content']):
+
+                line_body.update(self._last)
+                del line_body['content']
+
+                line_url = urlparse(line_body['url'])
+                del line_body['url']
+
+                line_body['url_path'] = line_url.path
+                line_body['url_query'] = parse_qs(
+                    line_url.query, keep_blank_values=True)
+
+                self._squish_dict(line_body['url_query'])
             
             yield line_body
 
@@ -520,7 +547,7 @@ class PlexSimpleLogParser(object):
 
 
     def parse_file(self, real_file_name):
-        logger = logging.getLogger(self.__class__.__name__ + '.' + 'parse_file')
+        logger = logging.getLogger(self.__class__.__name__ + '.parse_file')
 
         logger.debug("Called parse_file with: {0}".format(real_file_name))
 
@@ -533,53 +560,3 @@ class PlexSimpleLogParser(object):
                 lines.append(line_body)
         
         return lines
-
-
-class PlexLogParser(PlexSimpleLogParser):
-
-    def __init__(self, strict=True, *args, **kwargs):
-        super(PlexLogParser, self).__init__(*args, **kwargs)
-        self.strict = strict
-
-        # We call str.startswith(wanted_url)
-        # Set to [] if you want all urls to be saved! :)
-        self.wanted_urls = [
-            '/:/timeline',
-            '/video/:/transcode/universal/start',
-            '/video/:/transcode/universal/stop',
-            ]
-        
-
-    #
-    def _squish_dict(self, in_dict):
-        for key, value in in_dict.items():
-            if isinstance(value, list) and len(value) == 1:
-                in_dict[key] = value[0]
-
-
-    def line_body_filter(self, line_body):
-        if self._re_match(r'Request: (?P<method>\w+) (?P<url>.*) \[(?:::ffff:)?(?P<request_ip>[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)(?::(?P<request_port>[0-9]+))?\] .*', line_body['content']):
-            line_body.update(self._last)
-            del line_body['content']
-
-            line_url = urlparse(line_body['url'])
-            del line_body['url']
-
-            line_body['url_path'] = line_url.path
-            line_body['url_query'] = parse_qs(line_url.query, keep_blank_values=True)
-            self._squish_dict(line_body['url_query'])
-
-            if len(self.wanted_urls) == 0:
-                return True
-
-            for wanted_url in self.wanted_urls:
-                if line_body['url_path'].startswith(wanted_url):
-                    return True
-            else:
-                return False
-
-        if self.strict:
-            return False
-
-        return super(PlexLogParser, self).line_body_filter(line_body)
-

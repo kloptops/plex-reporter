@@ -18,13 +18,15 @@ import gzip
 import logging
 from lockfile import LockFile
 from glob import glob as file_glob
-from plex import PlexLogParser, PlexServerConnection, PlexMediaObject
+from plex import PlexLogParser, PlexServerConnection, plex_media_object, \
+    config_load, config_save
 
 
 def event_categorize(event):
-    # Only works with requests
+    # Currently only works with requests
     result = []
-    result.append("{0:04}-{1:02}-{2:02}".format(*event['datetime']))
+    # Doesn't work if event starts over new day
+    # result.append("{0:04}-{1:02}-{2:02}".format(*event['datetime']))
     
     if 'request_ip' in event:
         result.append(event['request_ip'])
@@ -49,20 +51,9 @@ def event_categorize(event):
     return tuple(result)
 
 
-def LogFileLoader(log_file):
-    results = []
-    skip_urls = [
-        '/:/plugins',
-        '/library/metadata',
-        '/web',
-        '/system',
-        ]
+def LogFileLoader(log_file, results=None):
+    results = {} if results is None else results
 
-    wanted_urls = [
-        '/:/timeline',
-        '/video/:/transcode/universal/start',
-        '/video/:/transcode/universal/stop',    
-        ]
     if log_file.endswith('.gz'):
         open_cmd = gzip.open
     else:
@@ -72,58 +63,15 @@ def LogFileLoader(log_file):
         for line in file_handle:
             line_body = json.loads(line)
 
-            # For now we are only really interested in url requests
-            if 'url_path' not in line_body:
+            # For now we are only really interested in categorized events
+            line_event = event_categorize(line_body)
+            if len(line_event) == 0:
                 continue
 
-            skip = False
-            for skip_url in skip_urls:
-                if line_body['url_path'].startswith(skip_url):
-                    skip = True
-            if skip:
-                continue
 
-            # for wanted_url in wanted_urls:
-            #     if line_body['url_path'].startswith(wanted_url):
-            #         break
-            # else:
-            #     continue
-
-            results.append(line_body)
+            results.setdefault(line_event, []).append(line_body)
 
     return results
-
-
-def diff_dict(dict_a, dict_b, ignore_list=[]):
-    all_keys = list(set(dict_b.keys()) + set(dict_a.keys()))
-    all_keys.sort()
-    result_a = []
-    result_b = []
-    for key in all_keys:
-        if key in ignore_list:
-            continue
-        if key not in dict_b:
-            result_a.append((key, dict_a[key]))
-        elif key not in dict_a:
-            result_b.append((key, dict_b[key]))
-        else:
-            if dict_a[key] != dict_b[key]:
-                result_a.append((key, dict_a[key]))
-                result_b.append((key, dict_b[key]))
-    return dict(result_a), dict(result_b)
-
-
-def merge_split_events(all_events):
-    all_events.sort(key=lambda event: event['datetime'])
-    last_event = all_events[0]
-    for event in all_events[1:]:
-        diff_a, diff_b = diff_dict(last_event['url_query'], event['url_query'], ['time'])
-        if len(diff_a) == 0:
-            continue
-        else:
-            yield 
-            last_event = event
-
 
 
 def main():
@@ -144,37 +92,17 @@ def main():
 
     config_file = os.path.join('logs', 'state.cfg')
 
-    if os.path.isfile(config_file):
-        with open(config_file, 'rU') as file_handle:
-            config = json.load(file_handle)
-    else:
-        config = {
-            'mode': 'text',
-            'last_datetime': '2000-1-1-0-0-0-0',
-            'log_filename': 'plex-media-server-{datetime[0]:04d}-{datetime[1]:02d}-{datetime[2]:02d}.log',
-            'log_match': 'plex-media-server-*.log*',
-            }
+    config = config_load(config_file)
 
-    conn = PlexServerConnection('norti-pc.local', 32400)
+    conn = PlexServerConnection(
+            config['plex_server_host'], config['plex_server_port'])
 
-    categories = {}
+    all_events = {}
 
-    log_file_match = os.path.join('logs', config['log_match'])
+    log_file_match = os.path.join('logs', config['log_file_match'])
     for log_file in file_glob(log_file_match):
         print("Log - {}".format(log_file))
-        log_lines = LogFileLoader(log_file)
-
-        for line_body in log_lines:
-            category_id = event_categorize(line_body)
-            category = categories.setdefault(category_id, [])
-            category.append(line_body)
-
-    print('Found {0} unique events'.format(len(categories)))
-    for category_id in sorted(categories.keys()):
-        print(json.dumps(category_id))
-        if '/:/timeline' in category_id:
-            for event in split_events(categories[category_id]):
-                print('   ', json.dumps(event, sort_keys=True))
+        LogFileLoader(log_file, all_events)
 
 
 if __name__ == '__main__':

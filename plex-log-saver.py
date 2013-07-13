@@ -19,16 +19,15 @@ import sys
 import json
 import logging
 import datetime
+
 from glob import glob as file_glob
-
-try:
-    from urlparse import urlparse, parse_qs
-except ImportError:
-    from urllib.parse import urlparse, parse_qs
-
-from plex import PlexLogParser, BasketOfHandles
+from plex import PlexLogParser, BasketOfHandles, config_load, config_save
+from lockfile import LockFile
 
 
+## TODO: really need to pull all this log parsing logic into this file
+##   and make it 1 class, this doesn't need to be so dynamic. Or
+##   atleast only the basic log parser?
 class PlexSuperLogParser(PlexLogParser):
     def __init__(self, last_datetime, *args, **kwargs):
         super(PlexSuperLogParser, self).__init__(**kwargs)
@@ -58,54 +57,51 @@ def main():
 
     logging.info('{0:#^40}'.format('[ Plex Log Saver ]'))
 
-    ## TODO: Move this into the config file
-    # We're only interested in 'Plex Media Server.log' log files
-    # I've been able to get 90% of the info i need from those logs
-    log_files = (
-        r'C:\Users\Norti\AppData\Local\Plex Media Server\Logs\Plex Media Server.log*',
-        )
-
     if not os.path.isdir('logs'):
         os.mkdir('logs')
 
     config_file = os.path.join('logs', 'state.cfg')
 
-    if os.path.isfile(config_file):
-        with open(config_file, 'rU') as file_handle:
-            config = json.load(file_handle)
-    else:
-        config = {
-            'mode': 'text',
-            'last_datetime': '2000-1-1-0-0-0-0',
-            'log_filename': 'plex-media-server-{datetime[0]:04d}-{datetime[1]:02d}-{datetime[2]:02d}.log',
-            'log_match': 'plex-media-server-*.log*',
-            }
+    config = config_load(config_file)
 
+    if config['plex_log_dir'] == '':
+        logging.info('Config missing "plex_log_dir", Exiting!')
+        print('Config missing "plex_log_dir", Exiting!')
+        return
+
+
+    # 
     log_file_template = os.path.join(
-        'logs', config['log_filename'])
+        'logs', config['log_file_name'])
 
-    if config['mode'] == 'gzip':
+    if config['log_save_mode'] == 'gzip':
         import gzip
         log_open = gzip.open
     else:
         log_open = open
 
-    last_datetime = tuple(map(int, config['last_datetime'].split('-')))
+    last_datetime = tuple(map(int, config['plex_last_datetime'].split('-')))
 
     log_parser = PlexSuperLogParser(last_datetime, strict=False)
     log_parser.wanted_urls = []
 
     all_lines = []
 
-    for log_file_glob in log_files:
-        for log_file in file_glob(log_file_glob):
-            all_lines.extend(log_parser.parse_file(log_file))
+    # We're only interested in 'Plex Media Server.log' log files
+    # I've been able to get 90% of the info i need from those logs
+    log_file_glob = os.path.join(
+        config['plex_log_dir'], 'Plex Media Server.log*')
+
+    for log_file in file_glob(log_file_glob):
+        all_lines.extend(log_parser.parse_file(log_file))
 
     if len(all_lines) == 0:
         logging.info('No new lines, finishing.')
         return
 
+    # Sort the logs based on datetime
     all_lines.sort(key=lambda line_body: line_body['datetime'])
+
 
     time_diff = datetime_diff(all_lines[0]['datetime'], last_datetime)
 
@@ -113,6 +109,7 @@ def main():
         *last_datetime))
     logging.info('Earliest entry this run: {0:04d}-{1:02d}-{2:02d} {3:02d}:{4:02d}:{5:02d}'.format(
         *all_lines[0]['datetime']))
+
 
     if time_diff.seconds > 60:
         if time_diff.days > 0:
@@ -135,14 +132,14 @@ def main():
             if line_body['datetime'] > last_datetime:
                 last_datetime = line_body['datetime']
 
-    config['last_datetime'] = '-'.join(map(str, last_datetime))
 
-    with open(config_file, 'w') as file_handle:
-        json.dump(config, file_handle, sort_keys=True, indent=4)
+    config['plex_last_datetime'] = '-'.join(map(str, last_datetime))
+
+    config_save(config_file, config)
 
     logging.info('Finished.')
 
+
 if __name__ == '__main__':
-    from lockfile import LockFile
     with LockFile() as lf:
         main()

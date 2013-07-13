@@ -15,6 +15,7 @@ import gzip
 import json
 from glob import glob as file_glob
 from lockfile import LockFile
+from plex import config_load, config_save
 
 
 def read_from_write_to(in_stream, out_stream):
@@ -25,32 +26,25 @@ def read_from_write_to(in_stream, out_stream):
         out_stream.write(data)
     return
 
+
 def main():
     if not os.path.isdir('logs'):
         os.mkdir('logs')
 
     config_file = os.path.join('logs', 'state.cfg')
 
-    if os.path.isfile(config_file):
-        with open(config_file, 'rU') as file_handle:
-            config = json.load(file_handle)
-    else:
-        config = {
-            'mode': 'text',
-            'last_datetime': '2000-1-1-0-0-0-0',
-            'log_filename': 'plex-media-server-{datetime[0]:04d}-{datetime[1]:02d}-{datetime[2]:02d}.log',
-            'log_match': 'plex-media-server-*.log*',
-            }
+    config = config_load(config_file)
 
-    log_match = os.path.join('logs', config['log_match'])
+    log_match = os.path.join('logs', config['log_file_match'])
 
     total_before = 0
     total_after = 0
 
-    if config['mode'] == 'text':
+    if config['log_save_mode'] == 'text':
         print('Enabling compression...')
-        config['mode'] = 'gzip'
-        config['log_filename'] = config['log_filename'] + '.gz'
+        config['log_save_mode'] = 'gzip'
+        if not config['log_file_name'].endswith('.gz'):
+            config['log_file_name'] = config['log_file_name'] + '.gz'
 
         for log_name in file_glob(log_match):
             # Shouldn't happen, but it might?
@@ -74,11 +68,12 @@ def main():
                 new_log_size, (new_log_size / float(log_size) * 100)))
 
             os.unlink(log_name)
-    elif config['mode'] == 'gzip':
+
+    elif config['log_save_mode'] == 'gzip':
         print('Disabling compression...')
-        config['mode'] = 'text'
-        if config['log_filename'].endswith('.gz'):
-            config['log_filename'] = config['log_filename'][:-3]
+        config['log_save_mode'] = 'text'
+        if config['log_file_name'].endswith('.gz'):
+            config['log_file_name'] = config['log_file_name'][:-3]
 
         for log_name in file_glob(log_match):
             # Shouldn't happen, but it might?
@@ -103,8 +98,7 @@ def main():
 
             os.unlink(log_name)
 
-    with open(config_file, 'w') as file_handle:
-        json.dump(config, file_handle, sort_keys=True, indent=4)
+    config_save(config_file)
 
     print('Logs size:')
     print(' Before: {0}'.format(total_before))

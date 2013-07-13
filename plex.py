@@ -12,6 +12,7 @@ Copyright (c) 2013 Jacob Smith. All rights reserved.
 
 import os
 import re
+import json
 import requests
 from bs4 import BeautifulSoup
 import logging
@@ -55,6 +56,73 @@ content_ratings = {
 class PlexException(Exception): pass
 class PlexServerException(PlexException): pass
 class PlexMediaException(PlexException): pass
+
+
+CONFIG_VERSION = '0.1'
+
+def config_update(config):
+    if config['config_version'] == '0.0':
+        # Renamed: mode -> log_save_mode
+        config['log_save_mode'] = config['mode']
+        del config['mode']
+
+        # Renamed: log_match -> log_file_match
+        config['log_file_match'] = config['log_match']
+        del config['log_match']
+
+        # Renamed: log_file_name -> log_filename
+        config['log_file_name'] = config['log_filename']
+        del config['log_filename']
+
+        # Renamed: last_datetime -> plex_last_datetime
+        config['plex_last_datetime'] = config['last_datetime']
+        del config['last_datetime']
+
+        # Added: 'plex_log_dir', 'plex_server_host', 'plex_server_port'
+        config.setdefault('plex_log_dir', '')
+        config.setdefault('plex_server_host', 'localhost')
+        config.setdefault('plex_server_port', 32400)
+
+        # Now 0.1
+        config['config_version'] = '0.1'
+
+    # Add new updates here... :)
+
+def config_load(config_file, no_save=False):
+    if os.path.isfile(config_file):
+        with open(config_file, 'rU') as file_handle:
+            config = json.load(file_handle)
+    else:
+        config = {
+            'config_version': CONFIG_VERSION,
+            'log_file_name': 'plex-media-server-{datetime[0]:04d}-{datetime[1]:02d}-{datetime[2]:02d}.log',
+            'log_file_match': 'plex-media-server-*.log*',
+            'log_save_mode': 'text',
+            'plex_last_datetime': '2000-1-1-0-0-0-0',
+            'plex_log_dir': '',
+            'plex_server_host': 'localhost',
+            'plex_server_port': 32400,
+            }
+
+        if not no_save:
+            config_save(config_file, config)
+
+    config.setdefault('config_version', '0.0')
+    if config['config_version'] != CONFIG_VERSION:
+        config_update(config)
+        if not no_save:
+            config_save(config_file, config)
+
+    return config
+
+def config_save(config_file, config):
+    config_file_temp = config_file + '.tmp'
+    with open(config_file_temp, 'w') as file_handle:
+        json.dump(config, file_handle, sort_keys=True, indent=4)
+
+    if os.path.isfile(config_file):
+        os.remove(config_file)
+    os.rename(config_file_temp, config_file)
 
 
 class BasketOfHandles(object):
@@ -123,7 +191,7 @@ class PlexServerConnection(object):
 
     def check_connection(self):
         # Check if medialookup is enabled, and test the connection if so
-        logger = logging.getLogger(self.__class__.__name__ + '.' + 'check_connection')
+        logger = logging.getLogger(self.__class__.__name__ + '.check_connection')
         logger.debug("Called check_connection")
         try:
             check_req=requests.get('http://{host}:{port}/servers'.format(
@@ -152,7 +220,7 @@ class PlexServerConnection(object):
 
     def fetch_metadata(self, key):
         assert isinstance(key, int)
-        logger = logging.getLogger(self.__class__.__name__ + '.' + 'fetch_metadata')
+        logger = logging.getLogger(self.__class__.__name__ + '.fetch_metadata')
 
         if not self.enabled:
             raise PlexServerException(
@@ -174,7 +242,7 @@ class PlexServerConnection(object):
 
 
     def fetch(self, path):
-        logger = logging.getLogger(self.__class__.__name__ + '.' + 'fetch')
+        logger = logging.getLogger(self.__class__.__name__ + '.fetch')
 
         if not self.enabled:
             raise PlexServerException(
@@ -264,7 +332,8 @@ class PlexMediaVideoObject(PlexMediaLibraryObject):
         self.title = video_tag.get('title', '')
         self.summary = video_tag.get('summary', '')
 
-        ## TODO: Make this better, but I haven't really needed this yet so I'm not really worried.
+        ## TODO: Make this better, but I haven't really needed this yet,
+        ## so I haven't decided how it needs to be laid out.
         media_tags = video_tag.find_all('media', id=True)
         for media_tag in media_tags:
             media_id = media_tag['id']
@@ -306,7 +375,11 @@ class PlexMediaEpisodeObject(PlexMediaVideoObject):
         self.episode = video_tag.get('index', 0)
 
     def __repr__(self):
-        return '<{us.__class__.__name__} key={us.key}, series_title={us.series_title!r}, season={us.season}, episode={us.episode}, title={us.title!r}>'.format(
+        return (
+            '<{us.__class__.__name__}'
+            ' key={us.key}, series_title={us.series_title!r},'
+            ' season={us.season}, episode={us.episode},'
+            ' title={us.title!r}>').format(
             us=self)
 
 
@@ -323,11 +396,14 @@ class PlexMediaMovieObject(PlexMediaVideoObject):
         super(PlexMediaMovieObject, self)._parse_xml(xml, soup)
 
     def __repr__(self):
-        return '<{us.__class__.__name__} key={us.key}, title={us.title!r} year={us.year}>'.format(
+        return (
+            '<{us.__class__.__name__}'
+            ' key={us.key}, title={us.title!r}'
+            ' year={us.year}>').format(
             us=self)
 
 
-def PlexMediaObject(conn, key, xml=None, soup=None):
+def plex_media_object(conn, key, xml=None, soup=None):
     if key is not None and xml is not None:
         raise TypeError(
             "Require argument 'key' or 'xml' must not be None")
@@ -415,7 +491,10 @@ class PlexSimpleLogParser(object):
         for line_no, line_text in enumerate(file_handle, 1):
 
             # Jul 03, 2013 02:13:16:353 [4600] DEBUG - .* ([127.0.0.1:57601])?
-            if not self._re_match(r'(?P<month>\w+) (?P<day>\d+), (?P<year>\d{4}) (?P<time>\d+:\d+:\d+:\d+) \[\d+\] (?P<debug_level>\w+) - (?P<content>.*)', line_text):
+            if not self._re_match((
+                r'(?P<month>\w+) (?P<day>\d+), (?P<year>\d{4})'
+                r' (?P<time>\d+:\d+:\d+:\d+) \[\d+\] (?P<debug_level>\w+)'
+                r' - (?P<content>.*)'), line_text):
                 continue
 
             line_body = {}

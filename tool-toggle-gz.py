@@ -24,7 +24,6 @@ def read_from_write_to(in_stream, out_stream):
         if len(data) == 0:
             break
         out_stream.write(data)
-    return
 
 
 def main():
@@ -103,6 +102,7 @@ def main():
     print('Logs size:')
     print(' Before: {0}'.format(total_before))
     print('  After: {0}'.format(total_after))
+
 
 if __name__ == '__main__':
     with LockFile() as lf:

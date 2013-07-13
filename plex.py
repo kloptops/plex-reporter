@@ -29,7 +29,7 @@ RATING_CHILD  = 1
 RATING_TEEN   = 2
 RATING_ADULT  = 3
 RATING_UNKNOWN= 4
-RATING_NAMES = ['Anyone', 'Child', 'Teen', 'Adult', 'Unknown']
+RATING_NAMES  = ['Anyone', 'Child', 'Teen', 'Adult', 'Unknown']
 
 content_ratings = {
     # TV ratings, obvious by the TV- prefix... o_o
@@ -52,13 +52,20 @@ content_ratings = {
     }
 
 
+class PlexException(Exception):
+    pass
 
-class PlexException(Exception): pass
-class PlexServerException(PlexException): pass
-class PlexMediaException(PlexException): pass
+
+class PlexServerException(PlexException):
+    pass
+
+
+class PlexMediaException(PlexException):
+    pass
 
 
 CONFIG_VERSION = '0.1'
+
 
 def config_update(config):
     if config['config_version'] == '0.0':
@@ -87,6 +94,7 @@ def config_update(config):
         config['config_version'] = '0.1'
 
     # Add new updates here... :)
+
 
 def config_load(config_file, no_save=False):
     if os.path.isfile(config_file):
@@ -188,6 +196,7 @@ class PlexServerConnection(object):
         self.page_cache = {}
 
         self.check_connection()
+
 
     def check_connection(self):
         # Check if medialookup is enabled, and test the connection if so
@@ -483,7 +492,6 @@ class PlexSimpleLogParser(object):
         del in_dict['month']
         del in_dict['day']
         del in_dict['time']
-
 
 
     def _parse_base(self, real_file_name, file_handle):

@@ -72,14 +72,11 @@ def main():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         filename='plex-log-saver.log',
         level=logging.DEBUG)
-
     logging.info('{0:#^40}'.format('[ Plex Log Saver ]'))
 
     if not os.path.isdir('logs'):
         os.mkdir('logs')
-
     config_file = os.path.join('logs', 'config.cfg')
-
     config = config_load(config_file)
 
     if config['plex_log_dir'] == '':
@@ -91,11 +88,13 @@ def main():
     log_file_template = os.path.join(
         'logs', config['log_file_name'])
 
+
     if config['log_save_mode'] == 'gzip':
         import gzip
         log_open = gzip.open
     else:
         log_open = open
+
 
     last_datetime = tuple(map(int, config['plex_last_datetime'].split('-')))
 
@@ -104,7 +103,7 @@ def main():
     all_lines = []
 
     # We're only interested in 'Plex Media Server.log' log files
-    # I've been able to get 90% of the info i need from those logs
+    # I've been able to so far get all of the info i need from those logs
     log_file_glob = os.path.join(
         config['plex_log_dir'], 'Plex Media Server.log*')
 
@@ -156,5 +155,15 @@ def main():
 
 
 if __name__ == '__main__':
-    with LockFile() as lock_file:
-        main()
+    import gc
+    while True:
+        # testing how much memory is used if it runs as a simple daemon...
+        if os.path.isfile('__shutdown__'):
+            os.remove('__shutdown__')
+            break
+
+        with LockFile() as lock_file:
+            main()
+
+        gc.collect()
+        time.sleep(60)

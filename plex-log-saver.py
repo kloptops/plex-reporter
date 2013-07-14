@@ -9,7 +9,7 @@ The MIT License (MIT)
 Copyright (c) 2013 Jacob Smith <kloptops@gmail.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the “Software”), to deal
+of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
 to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
@@ -18,7 +18,7 @@ furnished to do so, subject to the following conditions:
 The above copyright notice and this permission notice shall be included in
 all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
@@ -44,6 +44,7 @@ from plex.util import BasketOfHandles, config_load, config_save
 from plex.lockfile import LockFile
 from plex.parser import PlexLogParser
 
+
 class PlexSuperLogParser(PlexLogParser):
     def __init__(self, last_datetime, *args, **kwargs):
         super(PlexSuperLogParser, self).__init__(**kwargs)
@@ -68,10 +69,6 @@ def datetime_diff(date_a, date_b):
 
 
 def main():
-    logging.basicConfig(
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        filename='plex-log-saver.log',
-        level=logging.DEBUG)
     logging.info('{0:#^40}'.format('[ Plex Log Saver ]'))
 
     if not os.path.isdir('logs'):
@@ -83,7 +80,6 @@ def main():
         logging.info('Config missing "plex_log_dir", Exiting!')
         print('Config missing "plex_log_dir", Exiting!')
         return
-
 
     log_file_template = os.path.join(
         'logs', config['log_file_name'])
@@ -146,7 +142,6 @@ def main():
             if line_body['datetime'] > last_datetime:
                 last_datetime = line_body['datetime']
 
-
     config['plex_last_datetime'] = '-'.join(map(str, last_datetime))
 
     config_save(config_file, config)
@@ -157,14 +152,31 @@ def main():
 if __name__ == '__main__':
     import gc
     import time
-    while True:
-        # testing how much memory is used if it runs as a simple daemon...
-        if os.path.isfile('__shutdown__'):
-            os.remove('__shutdown__')
-            break
+    with open('plex-log-saver.log', 'a') as file_handle:
+        logging.basicConfig(
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            stream=file_handle,
+            level=logging.DEBUG)
 
-        with LockFile() as lock_file:
-            main()
+        try:
+            while True:
+                # testing how much memory is used if it runs as a simple daemon...
+                if os.path.isfile('__shutdown__'):
+                    os.remove('__shutdown__')
+                    break
 
-        gc.collect()
-        time.sleep(60)
+                with LockFile() as lock_file:
+                    main()
+
+                gc.collect()
+                file_handle.flush()
+
+                finish_sleeping = time.time() + 60
+                while time.time() < finish_sleeping:
+                    if os.path.isfile('__shutdown__'):
+                        break
+                    time.sleep(1)
+
+        except Exception as err:
+            logging.exception(err)
+            raise

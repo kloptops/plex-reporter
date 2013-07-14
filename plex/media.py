@@ -93,13 +93,16 @@ class PlexServerConnection(object):
         if key in self.metadata_cache:
             return self.metadata_cache[key]
 
-        metadata_req = requests.get('http://{host}:{port}/library/metadata/{key}'.format(
+        metadata_req = requests.get(
+            'http://{host}:{port}/library/metadata/{key}'.format(
             host=self.host, port=self.port, key=key))
 
         if metadata_req.status_code != 200:
             raise PlexServerException(
-                'Unable to query metadata for {key}: [{status_code}] - {reason}'.format(
-                key=key, status_code=metadata_req.status_code, reason=metadata_req.reason))
+                ('Unable to query metadata for {key}:'
+                ' [{status_code}] - {reason}').format(
+                key=key, status_code=metadata_req.status_code,
+                reason=metadata_req.reason))
 
         self.metadata_cache[key] = metadata_req.text
         return self.metadata_cache[key]
@@ -120,8 +123,10 @@ class PlexServerConnection(object):
 
         if page_req.status_code != 200:
             raise PlexServerException(
-                'Unable to query path {path}: [{status_code}] - {reason}'.format(
-                path=path, status_code=page_req.status_code, reason=page_req.reason))
+                ('Unable to query path {path}:'
+                ' [{status_code}] - {reason}').format(
+                path=path, status_code=page_req.status_code,
+                reason=page_req.reason))
 
         self.page_cache[path] = page_req.text
         return self.page_cache[path]
@@ -267,6 +272,10 @@ class PlexMediaMovieObject(PlexMediaVideoObject):
 
 
 def plex_media_object(conn, key, xml=None, soup=None):
+    """
+    passing: conn, key -- will retrieve the xml from the server
+    passing: key, xml[, soup] -- will just parse the possibly cached xml
+    """
     if key is not None and xml is not None:
         raise TypeError(
             "Require argument 'key' or 'xml' must not be None")

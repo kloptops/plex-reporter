@@ -156,6 +156,7 @@ def main():
 
 if __name__ == '__main__':
     import gc
+    import time
     while True:
         # testing how much memory is used if it runs as a simple daemon...
         if os.path.isfile('__shutdown__'):

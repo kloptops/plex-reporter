@@ -27,7 +27,8 @@ THE SOFTWARE.
 """
 
 import re
-
+import os
+import logging
 try:
     from urlparse import urlparse, parse_qs
 except ImportError:

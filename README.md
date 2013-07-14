@@ -26,10 +26,10 @@ videos are watched.
 The code is available at github [https://github.com/kloptops/plex-reporter][1]
 under MIT licence : [http://kloptops.mit-license.org][2]
 
- [0]: http://www.plexapp.com/
- [1]: https://github.com/kloptops/plex-reporter
- [2]: http://kloptops.mit-license.org
-
 ## Note :
 
 When testing on windows, do chcp 65001 in cmd.exe if you get character errors.
+
+ [0]: http://www.plexapp.com/
+ [1]: https://github.com/kloptops/plex-reporter
+ [2]: http://kloptops.mit-license.org

@@ -44,7 +44,6 @@ from plex.util import BasketOfHandles, config_load, config_save
 from plex.lockfile import LockFile
 from plex.parser import PlexLogParser
 
-
 class PlexSuperLogParser(PlexLogParser):
     def __init__(self, last_datetime, *args, **kwargs):
         super(PlexSuperLogParser, self).__init__(**kwargs)
@@ -79,7 +78,7 @@ def main():
     if not os.path.isdir('logs'):
         os.mkdir('logs')
 
-    config_file = os.path.join('logs', 'state.cfg')
+    config_file = os.path.join('logs', 'config.cfg')
 
     config = config_load(config_file)
 

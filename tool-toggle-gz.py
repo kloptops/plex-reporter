@@ -48,7 +48,7 @@ def main():
     if not os.path.isdir('logs'):
         os.mkdir('logs')
 
-    config_file = os.path.join('logs', 'state.cfg')
+    config_file = os.path.join('logs', 'config.cfg')
 
     config = config_load(config_file)
 
@@ -115,7 +115,7 @@ def main():
 
             os.unlink(log_name)
 
-    config_save(config_file)
+    config_save(config_file, config)
 
     print('Logs size:')
     print(' Before: {0}'.format(total_before))

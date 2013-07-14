@@ -28,19 +28,22 @@ THE SOFTWARE.
 
 """
 
-from bs4 import BeautifulSoup
-
-from lockfile import LockFile
+import os
 import plex
-from plex import LockFile, PlexServerConnection
+from bs4 import BeautifulSoup
+from plex import LockFile, PlexServerConnection, config_load, get_content_rating
 
 
 
 def main():
-    import json
+    if not os.path.isdir('logs'):
+        os.mkdir('logs')
 
-    conn = PlexServerConnection('norti-pc.local', 32400)
+    config_file = os.path.join('logs', 'config.cfg')
+    config = config_load(config_file, no_save=True)
 
+    conn = PlexServerConnection(
+            config['plex_server_host'], config['plex_server_port'])
 
     sections_page = conn.fetch('library/sections')
     sections_soup = BeautifulSoup(sections_page)
@@ -61,7 +64,7 @@ def main():
                     string_rating, item.get('title')))
                 return
             
-            content_rating = plex.content_ratings[string_rating]
+            content_rating = get_content_rating(string_rating)
             ratings[content_rating].append(item.get('title'))
         for item in items_soup.find_all('video'):
             string_rating = item.get('contentrating', '')
@@ -70,7 +73,7 @@ def main():
                     string_rating, item.get('title')))
                 return
             
-            content_rating = plex.content_ratings[string_rating]
+            content_rating = get_content_rating(string_rating)
             ratings[content_rating].append(item.get('title'))
 
         for rating, shows in enumerate(ratings):

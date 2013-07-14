@@ -1,59 +1,35 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # -*- python -*-
-from __future__ import print_function
+
+__license__ = """
+
+The MIT License (MIT)
+Copyright (c) 2013 Jacob Smith <kloptops@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the “Software”), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 
 """
-plex.py
 
-Created by Jacob Smith on 2013-07-10.
-Copyright (c) 2013 Jacob Smith. All rights reserved.
-"""
-
-import os
-import re
-import json
-import requests
-from bs4 import BeautifulSoup
 import logging
-from glob import glob as file_glob
-
-try:
-    from urlparse import urlparse, parse_qs
-except ImportError:
-    from urllib.parse import urlparse, parse_qs
-
-
-RATING_ANYONE = 0
-RATING_CHILD  = 1
-RATING_TEEN   = 2
-RATING_ADULT  = 3
-RATING_UNKNOWN= 4
-RATING_NAMES  = ['Anyone', 'Child', 'Teen', 'Adult', 'Unknown']
-
-content_ratings = {
-    # TV ratings, obvious by the TV- prefix... o_o
-    'TV-Y':  RATING_ANYONE,
-    'TV-Y7': RATING_ANYONE,
-    'TV-G':  RATING_CHILD,
-    'TV-PG': RATING_CHILD,
-    'TV-14': RATING_TEEN,
-    'TV-MA': RATING_ADULT,
-    'NC-17': RATING_ADULT,
-
-    # Movie ratings
-    'G':     RATING_ANYONE,
-    'PG':    RATING_CHILD,
-    'PG-13': RATING_TEEN,
-    'R':     RATING_ADULT,
-
-    # Hack
-    '':      RATING_UNKNOWN,
-    }
-
-
-class PlexException(Exception):
-    pass
+import requests
+from plex.util import PlexException, get_content_rating, RATING_UNKNOWN
+from bs4 import BeautifulSoup
 
 
 class PlexServerException(PlexException):
@@ -62,128 +38,6 @@ class PlexServerException(PlexException):
 
 class PlexMediaException(PlexException):
     pass
-
-
-CONFIG_VERSION = '0.1'
-
-
-def config_update(config):
-    if config['config_version'] == '0.0':
-        # Renamed: mode -> log_save_mode
-        config['log_save_mode'] = config['mode']
-        del config['mode']
-
-        # Renamed: log_match -> log_file_match
-        config['log_file_match'] = config['log_match']
-        del config['log_match']
-
-        # Renamed: log_file_name -> log_filename
-        config['log_file_name'] = config['log_filename']
-        del config['log_filename']
-
-        # Renamed: last_datetime -> plex_last_datetime
-        config['plex_last_datetime'] = config['last_datetime']
-        del config['last_datetime']
-
-        # Added: 'plex_log_dir', 'plex_server_host', 'plex_server_port'
-        config.setdefault('plex_log_dir', '')
-        config.setdefault('plex_server_host', 'localhost')
-        config.setdefault('plex_server_port', 32400)
-
-        # Now 0.1
-        config['config_version'] = '0.1'
-
-    # Add new updates here... :)
-
-
-def config_load(config_file, no_save=False):
-    if os.path.isfile(config_file):
-        with open(config_file, 'rU') as file_handle:
-            config = json.load(file_handle)
-    else:
-        config = {
-            'config_version': CONFIG_VERSION,
-            'log_file_name': 'plex-media-server-{datetime[0]:04d}-{datetime[1]:02d}-{datetime[2]:02d}.log',
-            'log_file_match': 'plex-media-server-*.log*',
-            'log_save_mode': 'text',
-            'plex_last_datetime': '2000-1-1-0-0-0-0',
-            'plex_log_dir': '',
-            'plex_server_host': 'localhost',
-            'plex_server_port': 32400,
-            }
-
-        if not no_save:
-            config_save(config_file, config)
-
-    config.setdefault('config_version', '0.0')
-    if config['config_version'] != CONFIG_VERSION:
-        config_update(config)
-        if not no_save:
-            config_save(config_file, config)
-
-    return config
-
-def config_save(config_file, config):
-    config_file_temp = config_file + '.tmp'
-    with open(config_file_temp, 'w') as file_handle:
-        json.dump(config, file_handle, sort_keys=True, indent=4)
-
-    if os.path.isfile(config_file):
-        os.remove(config_file)
-    os.rename(config_file_temp, config_file)
-
-
-class BasketOfHandles(object):
-    def __init__(self, creator, max_handles=10):
-        self.creator = creator
-        self.max_handles = max_handles
-        self.handles = {}
-        self.handle_queue = []
-        self.in_state = False
-
-    def open(self, key, *args, **kwargs):
-        if key in self.handles:
-            if self.handle_queue[0] != key:
-                self.handle_queue.remove(key)
-                self.handle_queue.insert(0, key)
-            return self.handles[key]
-
-        logger = logging.getLogger(self.__class__.__name__ + '.' + 'open')
-
-        # Make sure we only have at most max_handles open!
-        while len(self.handle_queue) >= self.max_handles:
-            old_key = self.handle_queue.pop()
-            logger.debug("Closing '{0}'".format(old_key))
-            self.handles[old_key].close()
-            del self.handles[old_key]
-
-        logger.debug("Opening '{0}'".format(key))
-        self.handles[key] = self.creator(key, *args, **kwargs)
-        self.handle_queue.insert(0, key)
-        return self.handles[key]
-
-    def __enter__(self):
-        logger = logging.getLogger(self.__class__.__name__ + '.' + '__enter__')
-        if self.in_state is True:
-            logger.error('Unable to enter state multiple times with single object')
-            raise Exception('Unable to enter state multiple times with single object')
-        self.in_state = True
-        logger.debug("Entering state")
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        logger = logging.getLogger(self.__class__.__name__ + '.' + '__exit__')
-        if self.in_state is False:
-            logger.error('Exit state called multiple times...')
-
-        self.in_state = False
-        logger.debug("Exiting state")
-        for key, value in self.handles.items():
-            logger.debug(" - closing: '{0}'".format(key))
-            value.close()
-
-        self.handles.clear()
-        self.handle_queue[:] = []
 
 
 class PlexServerConnection(object):
@@ -226,6 +80,7 @@ class PlexServerConnection(object):
             logger.error('Error checking media server: ' + str(err))
             self.enabled = False
             logger.warning("Media connection disabled!")
+
 
     def fetch_metadata(self, key):
         assert isinstance(key, int)
@@ -313,6 +168,9 @@ class PlexMediaVideoObject(PlexMediaLibraryObject):
 
     def clear(self):
         super(PlexMediaVideoObject, self).clear()
+        ## TODO: not sure if content ratings should be in the base object?
+        ##   I store audio or pictures on plex so I have no idea if they have
+        ##   contentratings... :(
         self.rating = ''
         self.rating_code = RATING_UNKNOWN
         self.duration = 0
@@ -330,10 +188,7 @@ class PlexMediaVideoObject(PlexMediaLibraryObject):
         video_tag = soup.find('video')
 
         self.rating = video_tag.get('contentrating', '')
-        if self.rating in content_ratings:
-            self.rating_code = content_ratings[self.rating]
-        else:
-            self.rating_code = RATING_UNKNOWN
+        self.rating_code = get_content_rating(self.rating)
 
         self.duration = video_tag.get('duration', 0)
         self.year = video_tag.get('year', '1900')
@@ -447,116 +302,3 @@ def plex_media_object(conn, key, xml=None, soup=None):
     else:
         raise PlexMediaException(
             'Unknown media type for {0}'.format(key))
-
-
-class PlexLogParser(object):
-    def __init__(self):
-        pass
-
-
-    def _re_search(self, regex, text):
-        match = re.search(regex, text)
-        if match:
-            self._last = match.groupdict()
-        else:
-            self._last = None
-        return self._last
-
-
-    def _re_match(self, regex, text):
-        match = re.search(regex, text)
-        if match:
-            self._last = match.groupdict()
-        else:
-            self._last = None
-        return self._last
-
-
-    def _parse_datetime(self, in_dict):
-        # give us a nice sortable time :)
-        month_index = {
-            'jan':  1, 'feb':  2, 'mar':  3,
-            'apr':  4, 'may':  5, 'jun':  6,
-            'jul':  7, 'aug':  8, 'sep':  9,
-            'oct': 10, 'nov': 11, 'dec': 12,
-            }
-
-        in_date = [
-            int(in_dict['year']),
-            int(month_index[in_dict['month'].lower()]),
-            int(in_dict['day']),
-            ]
-        in_time = list(map(int, in_dict['time'].split(':')))
-
-        in_dict['datetime'] = tuple(in_date + in_time)
-
-        del in_dict['year']
-        del in_dict['month']
-        del in_dict['day']
-        del in_dict['time']
-
-
-    def _squish_dict(self, in_dict):
-        for key, value in in_dict.items():
-            if isinstance(value, list) and len(value) == 1:
-                in_dict[key] = value[0]
-
-
-    def _parse_base(self, real_file_name, file_handle):
-        file_name = os.path.basename(real_file_name)
-        for line_no, line_text in enumerate(file_handle, 1):
-
-            # Jul 03, 2013 02:13:16:353 [4600] DEBUG - .* ([127.0.0.1:57601])?
-            if not self._re_match((
-                r'(?P<month>\w+) (?P<day>\d+), (?P<year>\d{4})'
-                r' (?P<time>\d+:\d+:\d+:\d+) \[\d+\] (?P<debug_level>\w+)'
-                r' - (?P<content>.*)'), line_text):
-                continue
-
-            line_body = {}
-            line_body['file_name'] = file_name
-            line_body['file_line_no'] = line_no
-            line_body.update(self._last)
-
-            self._parse_datetime(line_body)
-
-            if self._re_match((
-                    r'Request: (?P<method>\w+) (?P<url>.*)'
-                    r' \[(?:::ffff:)?'
-                    r'(?P<request_ip>[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)'
-                    r'(?::(?P<request_port>[0-9]+))?\] .*'),
-                    line_body['content']):
-
-                line_body.update(self._last)
-                del line_body['content']
-
-                line_url = urlparse(line_body['url'])
-                del line_body['url']
-
-                line_body['url_path'] = line_url.path
-                line_body['url_query'] = parse_qs(
-                    line_url.query, keep_blank_values=True)
-
-                self._squish_dict(line_body['url_query'])
-            
-            yield line_body
-
-
-    def line_body_filter(self, line_body):
-        return True
-
-
-    def parse_file(self, real_file_name):
-        logger = logging.getLogger(self.__class__.__name__ + '.parse_file')
-
-        logger.debug("Called parse_file with: {0}".format(real_file_name))
-
-        lines = []
-        with open(real_file_name, 'rU') as file_handle:
-            for line_body in self._parse_base(real_file_name, file_handle):
-                if not self.line_body_filter(line_body):
-                    continue
-
-                lines.append(line_body)
-        
-        return lines

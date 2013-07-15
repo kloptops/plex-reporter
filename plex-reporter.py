@@ -9,7 +9,7 @@ The MIT License (MIT)
 Copyright (c) 2013 Jacob Smith <kloptops@gmail.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the “Software”), to deal
+of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
 to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
@@ -18,7 +18,7 @@ furnished to do so, subject to the following conditions:
 The above copyright notice and this permission notice shall be included in
 all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
@@ -34,10 +34,18 @@ import sys
 import json
 import gzip
 import logging
+import codecs
 
 from glob import glob as file_glob
 from plex import (
     LockFile, PlexServerConnection, plex_media_object, config_load, config_save)
+
+
+def startswith_list(text, items):
+    for item in items:
+        if text.startswith(item):
+            return item
+    return None
 
 
 def event_categorize(event):
@@ -48,23 +56,33 @@ def event_categorize(event):
     seen = []
 
     url_collators = (
-        ('/video/:/transcode/segmented', '/video/:/transcode/segmented'),
-        ('/video/:/transcode/universal', '/video/:/transcode/universal'),
-        ('/video/:/transcode/session/', '/video/:/transcode/session/'),
+        '/video/:/transcode/segmented',
+        '/video/:/transcode/universal',
+        '/video/:/transcode/session',
         )
 
-    if 'request_ip' in event:
-        seen.append('ip')
-        result.append(event['request_ip'])
+    # Session info is only useful if we have a ratingKey or key
+    if 'session_info' in event and (
+            'ratingKey' in event['session_info'] or
+            'key' in event['session_info']):
+
+        seen.append('url')
+        result.append('/:/session_info')
+        session_info = event['session_info']
+        seen.append('session')
+        result.append(session_info['session'])
 
     if 'url_path' in event:
         seen.append('url')
-        for url_collator_match, url_collator_result in url_collators:
-            if event['url_path'].startswith(url_collator_match):
-                result.append(url_collator_result)
-                break
+        startswith = startswith_list(event['url_path'], url_collators)
+        if startswith:
+            result.append(startswith)
         else:
             result.append(event['url_path'])
+
+        if 'request_ip' in event:
+            seen.append('ip')
+            result.append(event['request_ip'])
 
         if (event['url_path'].startswith(
                 '/video/:/transcode/segmented/session') or
@@ -72,29 +90,62 @@ def event_categorize(event):
                 '/video/:/transcode/universal/session')):
             seen.append('session')
             result.append(event['url_path'].split('/')[6])
-        elif (event['url_path'].startswith('/video/:/transcode/session/')):
+        elif (event['url_path'].startswith('/video/:/transcode/session')):
             seen.append('session')
             result.append(event['url_path'].split('/')[5])
 
-    if 'url_query' in event:
+    if 'ip' not in seen and 'request_ip' in event:
+        seen.append('ip')
+        result.append(event['request_ip'])
+
+    if 'session' not in seen and 'url_query' in event:
         url_query = event['url_query']
-        if 'session' not in seen and 'session' in url_query:
+        if 'session' in url_query:
             seen.append('session')
             result.append(url_query['session'])
-        if 'session' not in seen and 'ratingKey' in url_query:
+        # elif 'X-Plex-Client-Identifier' in url_query:
+        #     seen.append('session')
+        #     result.append(url_query['X-Plex-Client-Identifier'])
+        elif 'ratingKey' in url_query:
             seen.append('key')
             result.append(url_query['ratingKey'])
-        elif 'session' not in seen and 'key' in url_query:
+        elif 'key' in url_query:
             seen.append('key')
             result.append(url_query['key'].rsplit('/', 1)[-1])
-        if 'session' not in seen and 'X-Plex-Device-Name' in url_query:
+        elif 'X-Plex-Device-Name' in url_query:
             seen.append('xpdn')
             result.append(url_query['X-Plex-Device-Name'])
 
     return tuple(result)
 
 
-def LogFileLoader(log_file, results=None):
+_content_session_info_re = (
+    re.compile(r'Client \[(?P<session>[^\]]+)]'),
+    re.compile(r'progress of (?P<time>\d+)/(?P<total>\d+)ms.*?'),
+    re.compile(r'for guid=(?P<guid>[^,]*)'),
+    re.compile(r'ratingKey=(?P<ratingKey>\d+)'),
+    re.compile(r'url=(?P<url>[^,]*),'),
+    re.compile(r'key=(?P<key>[^,]*),'),
+    re.compile(r'containerKey=(?P<containerKey>[^,]*),'),
+    re.compile(r'metadataId=(?P<metadataId>\d*)'),
+    )
+
+
+def decode_content_session_info(line_body):
+    result = {}
+    content = line_body['content']
+
+    for regex in _content_session_info_re:
+        match = regex.search(content)
+        if match is not None:
+            result.update(match.groupdict())
+
+    if 'session' in result:
+        del line_body['content']
+        line_body['session_info'] = result
+
+
+def log_file_loader(log_file, results=None):
     results = {} if results is None else results
 
     if log_file.endswith('.gz'):
@@ -102,29 +153,24 @@ def LogFileLoader(log_file, results=None):
     else:
         open_cmd = open
 
-    paths_not_wanted = (
-        '/:/plugins/',
-        '/library/metadata',
-        '/library/optimize',
-        '/library/section',
-        '/library/onDeck',
-        '/web/',
-        '/system/',
+    paths_wanted = (
+        '/:/session_info',
+        '/:/timeline',
+        '/video/:/transcode',
         )
 
     with open_cmd(log_file, 'rt') as file_handle:
         for line in file_handle:
             line_body = json.loads(line)
 
-            skip = False
-            if 'url_path' in line_body:
-                for path_not_wanted in paths_not_wanted:
-                    if line_body['url_path'].startswith(path_not_wanted):
-                        skip = True
-                        break
+            if 'content' in line_body and line_body['content'].startswith('Client ['):
+                decode_content_session_info(line_body)
 
-            if skip:
-                continue
+            if 'url_path' in line_body:
+                if line_body['url_path'] == '/':
+                    continue
+                if startswith_list(line_body['url_path'], paths_wanted) is None:
+                    continue
 
             # For now we are only really interested in categorized events
             line_event = event_categorize(line_body)
@@ -137,19 +183,234 @@ def LogFileLoader(log_file, results=None):
     return results
 
 
+def datetime_diff(date_a, date_b):
+    import datetime
+    a = datetime.datetime(*date_a)
+    b = datetime.datetime(*date_b)
+    return (a - b).seconds
 
-def parse_event(line_event, line_bodies, file_handle):
-    print_data = [
-        ('10.0.0.4', '/video/:/transcode/universal'),
-        ('10.0.0.6', '/video/:/transcode/segmented', '0C902F73-51D4-4D82-9499-E6234B305CAF'),
-        ('10.0.0.11', '/video/:/transcode/segmented', 'C5B092C3-B261-4344-A09F-A6939E10A468'),
-        ]
 
-    print(line_event, file=file_handle)
-    if line_event in print_data:
+class PlexEvent(object):
+    def __init__(self, **kwargs):
+        self.session_key = kwargs.get('session_key', '')
+        self.media_key = kwargs.get('media_key', '0')
+
+        self.device_name = kwargs.get('device_name', '')
+        self.device_ip = kwargs.get('device_ip', '')
+
+        self.start = kwargs.get('start', None)
+        self.end = kwargs.get('end', None)
+
+
+    def match(self, kwargs):
+        # A gauntlet of matching...
+        if ('session_key' in kwargs and 
+                self.session_key != '' and kwargs['session_key'] != self.session_key):
+            return False
+
+        if ('media_key' in kwargs and
+                self.media_key != '0' and kwargs['media_key'] != self.media_key):
+            return False
+
+        if 'datetime' in kwargs:
+            # We allow a 10 second threshold...
+            if (self.start is not None and datetime_diff(kwargs['datetime'], self.start) < -30):
+                return False
+
+            if (self.end is not None and datetime_diff(self.end, kwargs['datetime']) < -30):
+                return False
+
+        if ('start' in kwargs and
+                self.start is not None and self.start > kwargs['start']):
+            return False
+
+        if ('end' in kwargs and
+                self.end is not None and self.end < kwargs['end']):
+            return False
+
+        if ('device_name' in kwargs and self.device_name != '' and
+                self.device_name != kwargs['device_name']):
+            return False
+
+        return True
+
+    duration = property(lambda self: datetime_diff(self.end, self.start))
+
+    def __repr__(self):
+        return (
+            '<PlexEvent'
+            ' media_key={us.media_key},'
+            ' session_key={us.session_key!r},'
+            ' device_name={us.device_name!r},'
+            ' device_ip={us.device_ip},'
+            ' start={us.start!r},'
+            ' end={us.end!r},'
+            ' duration={us.duration}>'
+            ).format(us=self)
+
+
+class PlexEventParser(object):
+    def __init__(self, file_handle):
+        self.events = []
+        self.file_handle = file_handle
+
+
+    def find_events(self, kwargs):
+        events = []
+
+        for event in self.events:
+            if event.match(kwargs):
+                events.append(event)
+
+        return events
+
+    def find_unique_event(self, kwargs):
+        events = self.find_events(kwargs)
+        if len(events) == 1:
+            return events[0]
+        return None
+
+    def parse_session_info(self, event_category, line_bodies):
+        session_key = event_category[1]
+        # Load session info into our sessions dict
+        first = line_bodies[0]
+        last = first
+        counter = 0
+        print(json.dumps(event_category, sort_keys=True), file=self.file_handle)
         for line_body in line_bodies:
-            print(json.dumps(line_body, sort_keys=True), file=file_handle)
+            if line_body['session_info']['ratingKey'] != first['session_info']['ratingKey']:
+                temp = {
+                    'session_key': event_category[1],
+                    'media_key': first['session_info']['ratingKey'],
+                    'start': first['datetime'],
+                    'end': last['datetime'],
+                    }
+                match_events = self.find_events(temp)
+                if len(match_events) == 0:
+                    event = PlexEvent(**temp)
+                    print('- ', event, file=self.file_handle)
+                    self.events.append(event)
 
+                counter = 0
+                first = last = line_body
+            else:
+                counter += 1
+                last = line_body
+
+        temp = {
+            'session_key': event_category[1],
+            'media_key': first['session_info']['ratingKey'],
+            'start': first['datetime'],
+            'end': last['datetime'],
+            }
+
+        match_events = self.find_events(temp)
+        if len(match_events) == 0:
+            event = PlexEvent(**temp)
+            print('-', event, file=self.file_handle)
+            self.events.append(event)
+
+
+    def parse_timeline_info(self, event_category, line_bodies):
+        base_event_dict = {
+            'device_ip': event_category[1],
+            'media_key': event_category[2],
+            }
+
+        print(json.dumps(event_category, sort_keys=True), file=self.file_handle)
+        for line_body in line_bodies[:10]:
+            print('  ', json.dumps(line_body, sort_keys=True), file=self.file_handle)
+
+        seen_matches = []
+
+        temp_line_bodies = line_bodies[:]
+        while len(temp_line_bodies) > 0:
+            event_dict = dict(base_event_dict.items())
+
+            if 'X-Plex-Device-Name' in temp_line_bodies[0]['url_query']:
+               event_dict['device_name'] = temp_line_bodies[0]['url_query']['X-Plex-Device-Name']
+
+            if 'X-Plex-Client-Identifier' in temp_line_bodies[0]['url_query']:
+               event_dict['session_key'] = temp_line_bodies[0]['url_query']['X-Plex-Client-Identifier']
+
+            event_dict['datetime'] = temp_line_bodies[0]['datetime']
+
+            event = self.find_unique_event(event_dict)
+            if event is not None:
+                if event.device_ip == '':
+                    event.device_ip = event_dict['device_ip']
+                if event.device_name == '' and 'device_name' in event_dict:
+                    event.device_name = event_dict['device_name']
+                if event.session_key == '' and 'session_key' in event_dict:
+                    event.session_key = event_dict['session_key']
+
+            start = temp_line_bodies[0]
+            last = start
+            for end_counter, line_body in enumerate(temp_line_bodies):
+                if line_body["url_query"]["state"] not in ("playing", "paused"):
+                    last = line_body
+                    break
+                else:
+                    last = line_body
+
+            if last["url_query"]["state"] == "stopped":
+                # We did finish! :D
+                pass
+
+            end = last
+
+            # Get a more accurateish datetime... o_o
+            event_dict['start'] = start['datetime']
+            event_dict['end'] = end['datetime']
+            if event is not None:
+                if event.start > event_dict['start']:
+                    event.start = event_dict['start']
+                if event.end < event_dict['end']:
+                    event.end = event_dict['end']
+            else:
+                del event_dict['datetime']
+                event = PlexEvent(**event_dict)
+                self.events.append(event)
+    
+            end_counter += 1
+            temp_line_bodies[:] = temp_line_bodies[end_counter:]
+            # Do something with the events here...
+
+    def parse_transcode_info(self, event_category, line_bodies):
+        pass
+
+    def parse_events(self, all_events):
+        processed = {}
+
+        for event_category in sorted(all_events.keys()):
+            if event_category[0] == '/:/session_info':
+                self.parse_session_info(event_category, all_events[event_category])
+                processed[event_category] = True
+
+            elif event_category[0] == '/:/timeline':
+                self.parse_timeline_info(event_category, all_events[event_category])
+                processed[event_category] = True
+
+            elif event_category[0] in (
+                '/video/:/transcode/segmented',
+                '/video/:/transcode/universal'):
+                self.parse_transcode_info(event_category, all_events[event_category])
+                processed[event_category] = True
+
+        for event_category in sorted(all_events.keys()):
+            if event_category not in processed:
+                print(json.dumps(event_category, sort_keys=True), file=self.file_handle)
+                print('- ', len(all_events[event_category]))
+                for line_body in all_events[event_category][:10]:
+                    print(json.dumps(line_body, sort_keys=True), file=self.file_handle)
+
+        session_to_name_map = {}
+
+        self.events.sort(key=lambda event: (int(event.media_key), event.start))
+
+        print('#' * 80)
+        for event in self.events:
+            print("-", event)
 
 def main():
     import json
@@ -167,7 +428,7 @@ def main():
     if not os.path.isdir('logs'):
         os.mkdir('logs')
 
-    config_file = os.path.join('logs', 'state.cfg')
+    config_file = os.path.join('logs', 'config.cfg')
 
     config = config_load(config_file)
 
@@ -179,12 +440,13 @@ def main():
     log_file_match = os.path.join('logs', config['log_file_match'])
     for log_file in file_glob(log_file_match):
         print("Log - {}".format(log_file))
-        LogFileLoader(log_file, all_events)
+        log_file_loader(log_file, all_events)
 
-    with open('output.txt', 'wt', encoding="utf-8") as file_handle:
-        for line_event in sorted(all_events.keys()):
-            all_events[line_event].sort(key=lambda line_body: line_body['datetime'])
-            parse_event(line_event, all_events[line_event], file_handle)
+
+    with codecs.open('output.txt', 'wt', encoding="utf-8") as file_handle:
+        file_handle.write("#!/usr/bin/env python\n")
+        parser = PlexEventParser(file_handle)
+        parser.parse_events(all_events)
 
 if __name__ == '__main__':
     with LockFile() as lock_file:

@@ -285,10 +285,10 @@ class PlexEventParser(object):
                     'start': first['datetime'],
                     'end': last['datetime'],
                     }
-                match_events = self.find_events(temp)
-                if len(match_events) == 0:
+                match_event = self.find_unique_event(temp)
+                if match_event is None:
                     event = PlexEvent(**temp)
-                    print('- ', event, file=self.file_handle)
+                    print('-', event, file=self.file_handle)
                     self.events.append(event)
 
                 counter = 0
@@ -405,6 +405,45 @@ class PlexEventParser(object):
                     print(json.dumps(line_body, sort_keys=True), file=self.file_handle)
 
         session_to_name_map = {}
+        name_to_session_map = {}
+
+        session_to_ip_map = {}
+        ip_to_session_map = {}
+
+        name_to_ip_map = {}
+        ip_to_name_map = {}
+
+        for event in self.events:
+            if event.session_key != '' and event.device_name != '':
+                session_to_name_map[event.session_key] = event.device_name
+                name_to_session_map[event.device_name] = event.session_key
+
+            if event.device_name != '' and event.device_ip != '':
+                name_to_ip_map[event.device_name] = event.device_ip
+                ip_to_name_map[event.device_ip] = event.device_name
+
+            if event.device_ip != '' and event.session_key != '':
+                session_to_ip_map[event.session_key] = event.device_ip
+                ip_to_session_map[event.device_ip] = event.session_key
+
+        for event in self.events:
+            if event.session_key == '' and event.device_name != '':
+                event.session_key = name_to_session_map.get(event.device_name, '')
+
+            if event.session_key == '' and event.device_ip != '':
+                event.session_key = ip_to_session_map.get(event.device_ip, '')
+
+            if event.device_name == '' and event.session_key != '':
+                event.device_name = session_to_name_map.get(event.session_key, '')
+
+            if event.device_name == '' and event.device_ip != '':
+                event.device_name = ip_to_name_map.get(event.device_ip, '')
+
+            if event.device_ip == '' and event.session_key != '':
+                event.device_ip = session_to_ip_map.get(event.session_key, '')
+
+            if event.device_ip == '' and event.device_name != '':
+                event.device_ip = name_to_ip_map.get(event.device_name, '')
 
         self.events.sort(key=lambda event: (int(event.media_key), event.start))
 

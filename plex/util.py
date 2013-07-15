@@ -30,12 +30,12 @@ import os
 import json
 import logging
 
-RATING_ANYONE = 0
-RATING_CHILD  = 1
-RATING_TEEN   = 2
-RATING_ADULT  = 3
-RATING_UNKNOWN= 4
-RATING_NAMES  = ['Anyone', 'Child', 'Teen', 'Adult', 'Unknown']
+RATING_ANYONE  = 0
+RATING_CHILD   = 1
+RATING_TEEN    = 2
+RATING_ADULT   = 3
+RATING_UNKNOWN = 4
+RATING_NAMES   = ['Anyone', 'Child', 'Teen', 'Adult', 'Unknown']
 
 content_ratings = {
     # TV ratings, obvious by the TV- prefix... o_o
@@ -157,7 +157,7 @@ class BasketOfHandles(object):
                 self.handle_queue.insert(0, key)
             return self.handles[key]
 
-        logger = logging.getLogger(self.__class__.__name__ + '.' + 'open')
+        logger = logging.getLogger(self.__class__.__name__ + '.open')
 
         # Make sure we only have at most max_handles open!
         while len(self.handle_queue) >= self.max_handles:
@@ -172,7 +172,7 @@ class BasketOfHandles(object):
         return self.handles[key]
 
     def __enter__(self):
-        logger = logging.getLogger(self.__class__.__name__ + '.' + '__enter__')
+        logger = logging.getLogger(self.__class__.__name__ + '.__enter__')
         if self.in_state is True:
             logger.error('Unable to enter state multiple times with single object')
             raise RuntimeError('Unable to enter state multiple times with single object')
@@ -181,7 +181,7 @@ class BasketOfHandles(object):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        logger = logging.getLogger(self.__class__.__name__ + '.' + '__exit__')
+        logger = logging.getLogger(self.__class__.__name__ + '.__exit__')
         if self.in_state is False:
             logger.error('Exit state called multiple times...')
 

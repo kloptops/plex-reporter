@@ -190,6 +190,20 @@ def datetime_diff(date_a, date_b):
     return (a - b).seconds
 
 
+def format_date(datetime):
+    year, month, day, hour, minute, seconds, microseconds = datetime
+    meridian = 'am'
+    if hour > 12:
+        hour -= 12
+        meridian = 'pm'
+
+    return (
+        "{year:04}-{month:02}-{day:02}"
+        " {hour:02}:{minute:02}:{seconds:02}{meridian}").format(
+        year=year, month=month, day=day,
+        hour=hour, minute=minute, seconds=seconds, meridian=meridian)
+
+
 class PlexEvent(object):
     def __init__(self, **kwargs):
         self.session_key = kwargs.get('session_key', '')
@@ -201,6 +215,7 @@ class PlexEvent(object):
         self.start = kwargs.get('start', None)
         self.end = kwargs.get('end', None)
 
+        self.media_object = kwargs.get('media_object', None)
 
     def match(self, kwargs):
         # A gauntlet of matching...
@@ -234,6 +249,27 @@ class PlexEvent(object):
 
         return True
 
+    def cmp(self, other, keys=['media_key', 'session_key', 'start', 'end'], time_diff=5):
+        if 'media_key' in keys and self.media_key != other.media_key:
+            return False
+
+        if 'session_key' in keys and self.session_key != other.session_key:
+            return False
+
+        if 'start' in keys and abs(datetime_diff(self.start, other.start)) <= time_diff:
+            return False
+
+        if 'end' in keys and abs(datetime_diff(self.end, other.end)) <= time_diff:
+            return False
+
+        if 'device_name' in keys and self.device_name != other.device_name:
+            return False
+
+        if 'device_ip' in keys and self.device_ip != other.device_ip:
+            return False
+
+        return True
+
     duration = property(lambda self: datetime_diff(self.end, self.start))
 
     def __repr__(self):
@@ -243,10 +279,14 @@ class PlexEvent(object):
             ' session_key={us.session_key!r},'
             ' device_name={us.device_name!r},'
             ' device_ip={us.device_ip},'
-            ' start={us.start!r},'
-            ' end={us.end!r},'
-            ' duration={us.duration}>'
-            ).format(us=self)
+            ' start={start!r},'
+            ' end={end!r},'
+            ' duration={us.duration}, '
+            ' media_object={us.media_object}>'
+            ).format(
+                us=self,
+                start=format_date(self.start),
+                end=format_date(self.end))
 
 
 class PlexEventParser(object):
@@ -346,12 +386,18 @@ class PlexEventParser(object):
 
             start = temp_line_bodies[0]
             last = start
+            last_was_paused = False
             for end_counter, line_body in enumerate(temp_line_bodies):
-                if line_body["url_query"]["state"] not in ("playing", "paused"):
+                if line_body["url_query"]["state"] == "playing":
+                    if (last_was_paused and
+                            datetime_diff(line_body['datetime'], last['datetime']) > 60):
+                        break
                     last = line_body
-                    break
+                elif line_body["url_query"]["state"] == "paused":
+                    last = line_body
+                    last_was_paused = True
                 else:
-                    last = line_body
+                    break
 
             if last["url_query"]["state"] == "stopped":
                 # We did finish! :D
@@ -445,11 +491,25 @@ class PlexEventParser(object):
             if event.device_ip == '' and event.device_name != '':
                 event.device_ip = name_to_ip_map.get(event.device_name, '')
 
-        self.events.sort(key=lambda event: (int(event.media_key), event.start))
+        self.events.sort(key=lambda event: (event.start, int(event.media_key)))
 
-        print('#' * 80)
-        for event in self.events:
-            print("-", event)
+        new_events = []
+        skip_events = []
+        for i, event in enumerate(self.events):
+            if event.duration < 6:
+                continue
+
+            if event in skip_events:
+                continue
+
+            for other_event in self.events[i+1:]:
+                if event.cmp(other_event):
+                    skip_events.append(other_event)
+
+            new_events.append(event)
+
+        self.events[:] = new_events
+
 
 def main():
     import json
@@ -486,6 +546,13 @@ def main():
         file_handle.write("#!/usr/bin/env python\n")
         parser = PlexEventParser(file_handle)
         parser.parse_events(all_events)
+
+        print('#' * 80)
+        for event in parser.events:
+            if event.media_key != 0:
+                event.media_object = plex_media_object(conn, int(event.media_key))
+            print("-", event)
+
 
 if __name__ == '__main__':
     with LockFile() as lock_file:

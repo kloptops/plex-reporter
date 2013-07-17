@@ -542,7 +542,7 @@ def main():
         log_file_loader(log_file, all_events)
 
 
-    with codecs.open('output.txt', 'wt', encoding="utf-8") as file_handle:
+    with codecs.open('output.txt', 'w', encoding="utf-8") as file_handle:
         file_handle.write("#!/usr/bin/env python\n")
         parser = PlexEventParser(file_handle)
         parser.parse_events(all_events)

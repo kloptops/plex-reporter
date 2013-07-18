@@ -211,11 +211,17 @@ class PlexEvent(object):
 
         self.device_name = kwargs.get('device_name', '')
         self.device_ip = kwargs.get('device_ip', '')
+        self.device_client = kwargs.get('device_client', 'Unknown')
 
         self.start = kwargs.get('start', None)
         self.end = kwargs.get('end', None)
 
         self.media_object = kwargs.get('media_object', None)
+
+
+        self.resumed = kwargs.get('resumed', False)
+        # True stopped, False paused, None if we have no idea... :)
+        self.stopped = kwargs.get('stopped', None)
 
     def match(self, kwargs):
         # A gauntlet of matching...
@@ -274,15 +280,18 @@ class PlexEvent(object):
 
     def __repr__(self):
         return (
-            '<PlexEvent'
-            ' media_key={us.media_key},'
-            ' session_key={us.session_key!r},'
-            ' device_name={us.device_name!r},'
-            ' device_ip={us.device_ip},'
-            ' start={start!r},'
-            ' end={end!r},'
-            ' duration={us.duration}, '
-            ' media_object={us.media_object}>'
+            '<PlexEvent\n'
+            '    media_key={us.media_key},\n'
+            '    session_key={us.session_key!r},\n'
+            '    device_name={us.device_name!r},\n'
+            '    device_ip={us.device_ip},\n'
+            '    device_client={us.device_client!r}\n'
+            '    start={start!r},\n'
+            '    end={end!r},\n'
+            '    duration={us.duration},\n'
+            '    resumed={us.resumed},\n'
+            '    stopped={us.stopped},\n'
+            '    media_object={us.media_object}>'
             ).format(
                 us=self,
                 start=format_date(self.start),
@@ -293,7 +302,6 @@ class PlexEventParser(object):
     def __init__(self, file_handle):
         self.events = []
         self.file_handle = file_handle
-
 
     def find_events(self, kwargs):
         events = []
@@ -350,7 +358,6 @@ class PlexEventParser(object):
             print('-', event, file=self.file_handle)
             self.events.append(event)
 
-
     def parse_timeline_info(self, event_category, line_bodies):
         base_event_dict = {
             'device_ip': event_category[1],
@@ -359,65 +366,62 @@ class PlexEventParser(object):
 
         print(json.dumps(event_category, sort_keys=True), file=self.file_handle)
         for line_body in line_bodies[:10]:
-            print('  ', json.dumps(line_body, sort_keys=True), file=self.file_handle)
+            print(' ', json.dumps(line_body, sort_keys=True), file=self.file_handle)
 
         seen_matches = []
 
         temp_line_bodies = line_bodies[:]
         while len(temp_line_bodies) > 0:
+            if temp_line_bodies[0]['url_query']['time'] > temp_line_bodies[0]['url_query']['duration']:
+                # I don't get these events... O_o
+                temp_line_bodies.pop(0)
+                continue
+
             event_dict = dict(base_event_dict.items())
 
-            if 'X-Plex-Device-Name' in temp_line_bodies[0]['url_query']:
-               event_dict['device_name'] = temp_line_bodies[0]['url_query']['X-Plex-Device-Name']
-
-            if 'X-Plex-Client-Identifier' in temp_line_bodies[0]['url_query']:
-               event_dict['session_key'] = temp_line_bodies[0]['url_query']['X-Plex-Client-Identifier']
-
-            event_dict['datetime'] = temp_line_bodies[0]['datetime']
-
-            event = self.find_unique_event(event_dict)
-            if event is not None:
-                if event.device_ip == '':
-                    event.device_ip = event_dict['device_ip']
-                if event.device_name == '' and 'device_name' in event_dict:
-                    event.device_name = event_dict['device_name']
-                if event.session_key == '' and 'session_key' in event_dict:
-                    event.session_key = event_dict['session_key']
-
             start = temp_line_bodies[0]
+
+            if 'X-Plex-Product' in start['url_query']:
+                event_dict['device_client'] = start['url_query']['X-Plex-Product']
+
+            if 'X-Plex-Device-Name' in start['url_query']:
+               event_dict['device_name'] = start['url_query']['X-Plex-Device-Name']
+
+            if 'X-Plex-Client-Identifier' in start['url_query']:
+               event_dict['session_key'] = start['url_query']['X-Plex-Client-Identifier']
+
+            if int(start['url_query']['time']) > 10000:
+                event_dict['resumed'] = True
+
             last = start
-            last_was_paused = False
             for end_counter, line_body in enumerate(temp_line_bodies):
                 if line_body["url_query"]["state"] == "playing":
-                    if (last_was_paused and
-                            datetime_diff(line_body['datetime'], last['datetime']) > 60):
+                    # Detect weird time differencees...
+                    # if abs(line_body['url_query']['time'] - last['url_query']['time']) > 600000:
+                    #     end_counter -= 1
+                    #     break
+                    if datetime_diff(line_body['datetime'], last['datetime']) > 600:
+                        end_counter -= 1
                         break
                     last = line_body
                 elif line_body["url_query"]["state"] == "paused":
                     last = line_body
-                    last_was_paused = True
                 else:
+                    last = line_body
                     break
 
             if last["url_query"]["state"] == "stopped":
-                # We did finish! :D
-                pass
+                event_dict["stopped"] = True
+            elif last["url_query"]["state"] == "paused":
+                event_dict["stopped"] = False
 
             end = last
 
-            # Get a more accurateish datetime... o_o
             event_dict['start'] = start['datetime']
             event_dict['end'] = end['datetime']
-            if event is not None:
-                if event.start > event_dict['start']:
-                    event.start = event_dict['start']
-                if event.end < event_dict['end']:
-                    event.end = event_dict['end']
-            else:
-                del event_dict['datetime']
-                event = PlexEvent(**event_dict)
-                self.events.append(event)
-    
+            event = PlexEvent(**event_dict)
+            self.events.append(event)
+
             end_counter += 1
             temp_line_bodies[:] = temp_line_bodies[end_counter:]
             # Do something with the events here...
@@ -430,85 +434,86 @@ class PlexEventParser(object):
 
         for event_category in sorted(all_events.keys()):
             if event_category[0] == '/:/session_info':
-                self.parse_session_info(event_category, all_events[event_category])
-                processed[event_category] = True
+                #self.parse_session_info(event_category, all_events[event_category])
+                #processed[event_category] = True
+                pass
 
-            elif event_category[0] == '/:/timeline':
+            if event_category[0] == '/:/timeline':
                 self.parse_timeline_info(event_category, all_events[event_category])
                 processed[event_category] = True
 
-            elif event_category[0] in (
-                '/video/:/transcode/segmented',
-                '/video/:/transcode/universal'):
-                self.parse_transcode_info(event_category, all_events[event_category])
-                processed[event_category] = True
+            # if event_category[0] in (
+            #     '/video/:/transcode/segmented',
+            #     '/video/:/transcode/universal'):
+            #     self.parse_transcode_info(event_category, all_events[event_category])
+            #     processed[event_category] = True
 
         for event_category in sorted(all_events.keys()):
             if event_category not in processed:
                 print(json.dumps(event_category, sort_keys=True), file=self.file_handle)
-                print('- ', len(all_events[event_category]))
+                print('- # Found', len(all_events[event_category]), 'entries, printing the first 10', file=self.file_handle)
                 for line_body in all_events[event_category][:10]:
-                    print(json.dumps(line_body, sort_keys=True), file=self.file_handle)
+                    print('-', json.dumps(line_body, sort_keys=True), file=self.file_handle)
 
-        session_to_name_map = {}
-        name_to_session_map = {}
+        # session_to_name_map = {}
+        # name_to_session_map = {}
 
-        session_to_ip_map = {}
-        ip_to_session_map = {}
+        # session_to_ip_map = {}
+        # ip_to_session_map = {}
 
-        name_to_ip_map = {}
-        ip_to_name_map = {}
+        # name_to_ip_map = {}
+        # ip_to_name_map = {}
 
-        for event in self.events:
-            if event.session_key != '' and event.device_name != '':
-                session_to_name_map[event.session_key] = event.device_name
-                name_to_session_map[event.device_name] = event.session_key
+        # for event in self.events:
+        #     if event.session_key != '' and event.device_name != '':
+        #         session_to_name_map[event.session_key] = event.device_name
+        #         name_to_session_map[event.device_name] = event.session_key
 
-            if event.device_name != '' and event.device_ip != '':
-                name_to_ip_map[event.device_name] = event.device_ip
-                ip_to_name_map[event.device_ip] = event.device_name
+        #     if event.device_name != '' and event.device_ip != '':
+        #         name_to_ip_map[event.device_name] = event.device_ip
+        #         ip_to_name_map[event.device_ip] = event.device_name
 
-            if event.device_ip != '' and event.session_key != '':
-                session_to_ip_map[event.session_key] = event.device_ip
-                ip_to_session_map[event.device_ip] = event.session_key
+        #     if event.device_ip != '' and event.session_key != '':
+        #         session_to_ip_map[event.session_key] = event.device_ip
+        #         ip_to_session_map[event.device_ip] = event.session_key
 
-        for event in self.events:
-            if event.session_key == '' and event.device_name != '':
-                event.session_key = name_to_session_map.get(event.device_name, '')
+        # for event in self.events:
+        #     if event.session_key == '' and event.device_name != '':
+        #         event.session_key = name_to_session_map.get(event.device_name, '')
 
-            if event.session_key == '' and event.device_ip != '':
-                event.session_key = ip_to_session_map.get(event.device_ip, '')
+        #     if event.session_key == '' and event.device_ip != '':
+        #         event.session_key = ip_to_session_map.get(event.device_ip, '')
 
-            if event.device_name == '' and event.session_key != '':
-                event.device_name = session_to_name_map.get(event.session_key, '')
+        #     if event.device_name == '' and event.session_key != '':
+        #         event.device_name = session_to_name_map.get(event.session_key, '')
 
-            if event.device_name == '' and event.device_ip != '':
-                event.device_name = ip_to_name_map.get(event.device_ip, '')
+        #     if event.device_name == '' and event.device_ip != '':
+        #         event.device_name = ip_to_name_map.get(event.device_ip, '')
 
-            if event.device_ip == '' and event.session_key != '':
-                event.device_ip = session_to_ip_map.get(event.session_key, '')
+        #     if event.device_ip == '' and event.session_key != '':
+        #         event.device_ip = session_to_ip_map.get(event.session_key, '')
 
-            if event.device_ip == '' and event.device_name != '':
-                event.device_ip = name_to_ip_map.get(event.device_name, '')
+        #     if event.device_ip == '' and event.device_name != '':
+        #         event.device_ip = name_to_ip_map.get(event.device_name, '')
 
         self.events.sort(key=lambda event: (event.start, int(event.media_key)))
 
-        new_events = []
-        skip_events = []
-        for i, event in enumerate(self.events):
-            if event.duration < 6:
-                continue
+        # new_events = []
+        # skip_events = []
+        # for i, event in enumerate(self.events):
+        #     if event.duration < 6:
+        #         continue
 
-            if event in skip_events:
-                continue
+        #     if event in skip_events:
+        #         continue
 
-            for other_event in self.events[i+1:]:
-                if event.cmp(other_event):
-                    skip_events.append(other_event)
+        #     for other_event in self.events[i+1:]:
+        #         if event.cmp(other_event):
+        #             skip_events.append(other_event)
 
-            new_events.append(event)
+        #     new_events.append(event)
 
-        self.events[:] = new_events
+        # self.events[:] = new_events
 
 
 def main():
@@ -537,7 +542,7 @@ def main():
     all_events = {}
 
     log_file_match = os.path.join('logs', config['log_file_match'])
-    for log_file in file_glob(log_file_match):
+    for i, log_file in enumerate(file_glob(log_file_match)):
         print("Log - {}".format(log_file))
         log_file_loader(log_file, all_events)
 
@@ -550,7 +555,7 @@ def main():
         print('#' * 80)
         for event in parser.events:
             if event.media_key != 0:
-                event.media_object = plex_media_object(conn, int(event.media_key))
+               event.media_object = plex_media_object(conn, int(event.media_key))
             print("-", event)
 
 

@@ -51,7 +51,6 @@ class PlexServerConnection(object):
 
         self.check_connection()
 
-
     def check_connection(self):
         # Check if medialookup is enabled, and test the connection if so
         logger = logging.getLogger(self.__class__.__name__ + '.check_connection')
@@ -81,7 +80,6 @@ class PlexServerConnection(object):
             self.enabled = False
             logger.warning("Media connection disabled!")
 
-
     def fetch_metadata(self, key):
         assert isinstance(key, int)
         logger = logging.getLogger(self.__class__.__name__ + '.fetch_metadata')
@@ -106,7 +104,6 @@ class PlexServerConnection(object):
 
         self.metadata_cache[key] = metadata_req.text
         return self.metadata_cache[key]
-
 
     def fetch(self, path):
         logger = logging.getLogger(self.__class__.__name__ + '.fetch')
@@ -195,7 +192,7 @@ class PlexMediaVideoObject(PlexMediaLibraryObject):
         self.rating = video_tag.get('contentrating', '')
         self.rating_code = get_content_rating(self.rating)
 
-        self.duration = video_tag.get('duration', 0)
+        self.duration = int(video_tag.get('duration', 0))
         self.year = video_tag.get('year', '1900')
         self.title = video_tag.get('title', '')
         self.summary = video_tag.get('summary', '')
@@ -276,7 +273,7 @@ def plex_media_object(conn, key, xml=None, soup=None):
     passing: conn, key -- will retrieve the xml from the server
     passing: key, xml[, soup] -- will just parse the possibly cached xml
     """
-    if key is not None and xml is not None:
+    if key is None and xml is None:
         raise TypeError(
             "Require argument 'key' or 'xml' must not be None")
 
@@ -311,3 +308,46 @@ def plex_media_object(conn, key, xml=None, soup=None):
     else:
         raise PlexMediaException(
             'Unknown media type for {0}'.format(key))
+
+
+## TODO: allow PlexServerConnection to cache something like this...
+def plex_media_object_batch(conn, keys, batch_size=20):
+    """
+    Batch fetch metadata from media server. :)
+    """
+    if not isinstance(keys, (list, tuple)):
+        raise TypeError("Required argument 'keys' must be a list or tuple.")
+
+    if conn is None:
+        raise TypeError("Argument 'conn' must not be None")
+
+    logger = logging.getLogger('plex_media_object_batch')
+    logger.debug("Fetching {0} media objects".format(len(keys)))
+
+    results = {}
+    all_keys = keys[:]
+
+    while len(all_keys) > 0:
+        working_keys = all_keys[:batch_size]
+        all_keys = all_keys[batch_size:]
+        req = 'library/metadata/' + ','.join(map(str, working_keys))
+
+        logger.debug("-> {0}".format(', '.join(map(str, working_keys))))
+
+        xml = conn.fetch(req)
+        soup = BeautifulSoup(xml)
+
+        for container_tag in soup.find_all(ratingkey=True):
+            container_key = container_tag['ratingkey']
+            if container_key in results:
+                continue
+
+            ## TODO: Extract the soup object, suitable for passing down
+            ##   to plex_media_object
+            results[container_key] = plex_media_object(
+                conn, int(container_key), str(container_tag))
+
+    logger.debug("Fetched {0} media objects".format(len(results)))
+
+    return results
+

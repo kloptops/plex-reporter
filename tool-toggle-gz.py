@@ -32,7 +32,8 @@ import os
 import gzip
 import json
 from glob import glob as file_glob
-from plex import config_load, config_save, LockFile
+from plex.lockfile import LockFile
+from plex.util import config_load, config_save
 
 
 def read_from_write_to(in_stream, out_stream):

@@ -31,7 +31,9 @@ THE SOFTWARE.
 import os
 import plex
 from bs4 import BeautifulSoup
-from plex import LockFile, PlexServerConnection, config_load, get_content_rating
+from plex.lockfile import LockFile
+from plex.media import PlexServerConnection
+from plex.util import config_load, get_content_rating
 
 
 

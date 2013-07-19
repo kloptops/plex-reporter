@@ -27,24 +27,3 @@ THE SOFTWARE.
 """
 __author__ = "Jacob Smith"
 __version__ = "0.1.0"
-
-from plex.util import (
-	RATING_ANYONE, RATING_CHILD, RATING_TEEN, RATING_ADULT,
-	RATING_UNKNOWN, RATING_NAMES, get_content_rating, content_ratings,
-	PlexException,
-	CONFIG_VERSION, config_load, config_save,
-	BasketOfHandles,
-	)
-
-from plex.media import (
-	PlexMediaException, PlexServerException,
-	PlexServerConnection,
-	PlexMediaLibraryObject, PlexMediaVideoObject, PlexMediaEpisodeObject,
-	PlexMediaMovieObject, plex_media_object
-	)
-
-from plex.parser import (
-	PlexLogParser,
-	)
-
-from plex.lockfile import LockFile, TimeOutError

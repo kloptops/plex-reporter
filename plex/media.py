@@ -96,11 +96,13 @@ class PlexServerConnection(object):
             host=self.host, port=self.port, key=key))
 
         if metadata_req.status_code != 200:
-            raise PlexServerException(
-                ('Unable to query metadata for {key}:'
-                ' [{status_code}] - {reason}').format(
-                key=key, status_code=metadata_req.status_code,
-                reason=metadata_req.reason))
+            raise PlexServerException((
+                'Unable to query metadata for {key}:'
+                ' [{status_code}] - {reason}'
+                ).format(
+                    key=key,
+                    status_code=metadata_req.status_code,
+                    reason=metadata_req.reason))
 
         self.metadata_cache[key] = metadata_req.text
         return self.metadata_cache[key]

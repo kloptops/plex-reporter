@@ -294,23 +294,20 @@ class EventParser(object):
                         self.event.device_name = session['device_name']
                     if 'device_client' in session:
                         self.event.device_client = session['device_client']
+
             if (self.event_category[0] == '/:/progress' and
-                    self.event.session_key == '' and self.event.device_name == ''):
-                assert 'identifier' in event_line['url_query']
+                    self.event.session_key == '' and
+                    self.event.device_name == '' and
+                    'identifier' in event_line['url_query']):
 
-                ## Anyone with any better idea's, please stand up :(
+                ## Anyone with any better idea's, please stand up :/
                 if event_line['url_query']['identifier'] == 'com.plexapp.plugins.library':
-                    self.event.device_name = 'Plex Media Center'
-                    self.event.session_key = self.event.device_ip
-
-            if self.event.session_key == '' and self.event.device_name == '':
-                for previous_line in previous_lines:
-                    print("< ", json.dumps(previous_line, sort_keys=True))
-                print("=", json.dumps(event_line, sort_keys=True))
-                print(self.event)
-                for next_line in next_lines:
-                    print("> ", json.dumps(next_line, sort_keys=True))
-                print("#" * 80)
+                    self.event.device_name = (
+                        'Plex Media Center @ ({0})'.format(
+                            self.event.device_ip))
+                    self.event.device_client = 'Plex Media Center'
+                    self.event.session_key = (
+                        '-'.join(['pms', self.event.device_ip]))
 
             if self.event.device_client == 'DLNA':
                 for z_category, z_line in chain(
@@ -334,6 +331,33 @@ class EventParser(object):
                     for next_line in next_lines:
                         print("> ", json.dumps(next_line, sort_keys=True))
                     print("#" * 80)
+
+            ## I have no idea what client this is :(
+            if (self.event.device_client == 'Unknown' and
+                    self.event.session_key == '' and
+                    self.event.device_name == ''):
+
+                for z_category, z_line in chain(
+                        reversed(previous_lines), next_lines):
+
+                    if len(z_category) == 0:
+                        continue
+
+                    if (z_category[0] == "/:/session_info" and
+                        'ratingKey' in z_line['session_info'] and
+                        z_line['session_info']['ratingKey'] == self.event.media_key):
+                        self.event.session_key = z_category[1]
+                        break
+
+            ## Still not set?!?!?!?!?! D:<
+            if self.event.session_key == '' or self.event.device_name == '':
+                for previous_line in previous_lines:
+                    print("< ", json.dumps(previous_line, sort_keys=True))
+                print("=", json.dumps(event_line, sort_keys=True))
+                print(self.event)
+                for next_line in next_lines:
+                    print("> ", json.dumps(next_line, sort_keys=True))
+                print("#" * 80)
 
             self.first_line = False
             self.last = event_line
@@ -482,7 +506,6 @@ class EventParserController(object):
             if event_line is None:
                 break
 
-            # print("Parsing", event_line)
             event_category = event_categorize(event_line)
             self.next_lines.append((event_category, event_line))
             while len(self.next_lines) > self.buffer_size:

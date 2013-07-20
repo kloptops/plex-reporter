@@ -48,3 +48,4 @@ Thumbs.db
 *.bak
 *.sublime-*
 /logs/*.cfg
+*.pickle

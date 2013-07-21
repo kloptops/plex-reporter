@@ -43,12 +43,12 @@ class PlexMediaException(PlexException):
 
 class PlexServerConnection(object):
     def __init__(self, host='localhost', port=32400):
-        self.host = host
-        self.port = port
-        self.enabled = False
-        self.server_info = {}
+        self.host           = host
+        self.port           = port
+        self.enabled        = False
+        self.server_info    = {}
         self.metadata_cache = {}
-        self.page_cache = {}
+        self.page_cache     = {}
 
         self.check_connection()
 
@@ -65,11 +65,11 @@ class PlexServerConnection(object):
             server_info = check_soup('server')[0]
 
             self.server_info = {}
-            self.server_info['name'] = server_info['name']
-            self.server_info['host'] = server_info['host']
-            self.server_info['port'] = server_info['port']
+            self.server_info['name']    = server_info['name']
+            self.server_info['host']    = server_info['host']
+            self.server_info['port']    = server_info['port']
             self.server_info['address'] = server_info['address']
-            self.server_info['id'] = server_info['machineidentifier']
+            self.server_info['id']      = server_info['machineidentifier']
             self.server_info['version'] = server_info['version']
 
             self.enabled = True
@@ -92,9 +92,9 @@ class PlexServerConnection(object):
         if key in self.metadata_cache:
             return self.metadata_cache[key]
 
-        metadata_req = requests.get(
-            'http://{host}:{port}/library/metadata/{key}'.format(
-            host=self.host, port=self.port, key=key))
+        metadata_req = requests.get((
+            'http://{host}:{port}/library/metadata/{key}').format(
+                host=self.host, port=self.port, key=key))
 
         if metadata_req.status_code != 200:
             raise PlexServerException((
@@ -176,12 +176,12 @@ class PlexMediaVideoObject(PlexMediaLibraryObject):
         ## TODO: not sure if content ratings should be in the base object?
         ##   I don't store audio or pictures on plex so I have no idea if they
         ##   have contentratings... :(
-        self.rating = ''
+        self.rating      = ''
         self.rating_code = RATING_UNKNOWN
-        self.duration = 0
-        self.year = '1900'
-        self.title = ''
-        self.summary = ''
+        self.duration    = 0
+        self.year        = '1900'
+        self.title       = ''
+        self.summary     = ''
 
         self.media = {}
         self.parts = []
@@ -192,13 +192,13 @@ class PlexMediaVideoObject(PlexMediaLibraryObject):
         super(PlexMediaVideoObject, self)._parse_xml(xml, soup)
         video_tag = soup.find('video')
 
-        self.rating = video_tag.get('contentrating', '')
+        self.rating      = video_tag.get('contentrating', '')
         self.rating_code = get_content_rating(self.rating)
 
-        self.duration = int(video_tag.get('duration', 0))
-        self.year = video_tag.get('year', '1900')
-        self.title = video_tag.get('title', '')
-        self.summary = video_tag.get('summary', '')
+        self.duration    = int(video_tag.get('duration', 0))
+        self.year        = video_tag.get('year', '1900')
+        self.title       = video_tag.get('title', '')
+        self.summary     = video_tag.get('summary', '')
 
         ## TODO: Make this better, but I haven't really needed this yet,
         ## so I haven't decided how it needs to be laid out.
@@ -224,11 +224,11 @@ class PlexMediaEpisodeObject(PlexMediaVideoObject):
 
     def clear(self):
         super(PlexMediaEpisodeObject, self).clear()
-        self.series_key = 0
+        self.series_key   = 0
         self.series_title = 'Unknown'
-        self.season_key = 0
-        self.season = 0
-        self.episode = 0
+        self.season_key   = 0
+        self.season       = 0
+        self.episode      = 0
 
     def _parse_xml(self, xml, soup=None):
         if soup is None:
@@ -236,11 +236,11 @@ class PlexMediaEpisodeObject(PlexMediaVideoObject):
         super(PlexMediaEpisodeObject, self)._parse_xml(xml, soup)
         video_tag = soup.find('video')
 
-        self.series_key = video_tag.get('grandparentratingkey', 0)
+        self.series_key   = video_tag.get('grandparentratingkey', 0)
         self.series_title = video_tag.get('grandparenttitle', 'Unknown')
-        self.season_key = video_tag.get('parentratingkey', 0)
-        self.season = video_tag.get('parentindex', 0)
-        self.episode = video_tag.get('index', 0)
+        self.season_key   = video_tag.get('parentratingkey', 0)
+        self.season       = video_tag.get('parentindex', 0)
+        self.episode      = video_tag.get('index', 0)
 
     def __repr__(self):
         return (

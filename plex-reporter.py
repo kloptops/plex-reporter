@@ -51,7 +51,7 @@ except ImportError:
 def do_pickle(pickle_file, objs):
     temp_file = pickle_file + '.tmp'
     with open(temp_file, 'wb') as file_handle:
-        pickle.dump(objs, file_handle, pickle.HIGHEST_PROTOCOL)
+        pickle.dump(objs, file_handle, 2)
 
     if os.path.isfile(pickle_file):
         os.remove(pickle_file)

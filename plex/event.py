@@ -31,7 +31,6 @@ import re
 import json
 import gzip
 import itertools
-import collections
 
 from plex.util import datetime_diff
 
@@ -341,7 +340,8 @@ class EventParser(object):
 
         ## Still no session_key, it used to be just for sessions, now we use it
         ## for a unique identifier... probably should fix this :/
-        if (self.event.session_key == '' and
+        if ((self.event.session_key == '' or
+                self.event.session_key in self.controller.debug_keys) and
                 self.controller.debug_stream is not None):
 
             ds = self.controller.debug_stream
@@ -397,23 +397,41 @@ class EventParser(object):
 
         self.event.end = self.last['datetime']
 
+        if self.event.session_key in self.controller.debug_keys:
+            ds = self.controller.debug_stream
+            if ds is None:
+                return
+
+            print("#" * 80, file=ds)
+
+            print(self.event, file=ds)
+
+            for event_line in self.debug_info:
+                print("-", json.dumps(event_line, sort_keys=True), file=ds)
+
+            print("#" * 80, file=ds)
+
 
 class EventParserController(object):
     """EventParserController(buffer_size=20)
 
     Controls the creation and destruction of EventParser objects. Suitable for
     serializing with pickle, infact its recommended.
+
+    This object keep track of the previous/next 20 lines for EventParser
+    objects, this allows them to check surrounding lines for data.
     """
-    def __init__(self, buffer_size=20, debug_stream=None):
+    def __init__(self, buffer_size=20, debug_stream=None, debug_keys=None):
         self.event_parsers = {}
         self.done_events = []
         self.sessions = {}
         self.debug_stream = debug_stream
+        self.debug_keys = debug_keys if debug_keys is not None else []
 
         # Buffer contains the last/next buffer_size lines
         self.buffer_size = buffer_size
-        self.next_lines = collections.deque([])
-        self.previous_lines = collections.deque([], buffer_size)
+        self.next_lines = []
+        self.previous_lines = []
 
     def _parse_session_event(self, event_category, event_line):
         if event_line['url_path'].rsplit('/', 1)[-1].startswith("start."):
@@ -510,16 +528,23 @@ class EventParserController(object):
         """Parse an event_line."""
         event_category = event_categorize(event_line)
         self.next_lines.append((event_category, event_line))
+
         while len(self.next_lines) > self.buffer_size:
-            event_category, event_line = self.next_lines.popleft()
+            ## We used to use deque's, but they dont play well with pickeling
+            ## between python versions :(
+            ## This on average is faster than pop.
+            event_category, event_line = self.next_lines[0]
+            del self.next_lines[0]
+
             if len(event_category) == 0:
                 self.previous_lines.append((event_category, event_line))
-                continue
-
-            if self.parse_event(event_category, event_line):
+            elif self.parse_event(event_category, event_line):
                 self.previous_lines.append((event_category, event_line))
             else:
-                self.next_lines.appendleft((event_category, event_line))
+                self.next_lines.insert(0, (event_category, event_line))
+
+        if len(self.previous_lines) > self.buffer_size:
+            del self.previous_lines[:-self.buffer_size]
 
     def parse_finish(self):
         """Finish off the parser.
@@ -538,16 +563,19 @@ class EventParserController(object):
         will be returned, but at the same time you're safe to use these events
         as the event_id should not change.
         """
-        while len(self.next_lines) > self.buffer_size:
-            event_category, event_line = self.next_lines.popleft()
+        while len(self.next_lines) > 0:
+            event_category, event_line = self.next_lines[0]
+            del self.next_lines[0]
+
             if len(event_category) == 0:
                 self.previous_lines.append((event_category, event_line))
-                continue
-
-            if self.parse_event(event_category, event_line):
+            elif self.parse_event(event_category, event_line):
                 self.previous_lines.append((event_category, event_line))
             else:
-                self.next_lines.appendleft((event_category, event_line))
+                self.next_lines.insert(0, (event_category, event_line))
+
+        if len(self.previous_lines) > self.buffer_size:
+            del self.previous_lines[:-self.buffer_size]
 
     def parse_dump(self, last_datetime):
         """Clear out null events, returns done_events.
@@ -558,7 +586,7 @@ class EventParserController(object):
         done_events = self.done_events
         self.done_events = []
 
-        for event_key in self.event_parsers.keys():
+        for event_key in list(self.event_parsers.keys()):
             event_parser = self.event_parsers[event_key]
             if event_parser.first_line:
                 del self.event_parsers[event_key]
@@ -581,7 +609,7 @@ class EventParserController(object):
         they change.
         """
         done_events = []
-        for event_key in self.event_parsers.keys():
+        for event_key in list(self.event_parsers.keys()):
             event_parser = self.event_parsers[event_key]
             if not event_parser.first_line:
                 event_parser.finish()

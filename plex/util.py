@@ -29,6 +29,7 @@ THE SOFTWARE.
 
 import os
 import json
+import zlib
 import logging
 import datetime
 
@@ -49,19 +50,26 @@ RATING_NAMES   = ['Anyone', 'Child', 'Teen', 'Adult', 'Unknown']
 
 content_ratings = {
     # TV ratings, obvious by the TV- prefix... o_o
-    'TV-Y':  RATING_ANYONE,
-    'TV-Y7': RATING_ANYONE,
-    'TV-G':  RATING_CHILD,
-    'TV-PG': RATING_CHILD,
-    'TV-14': RATING_TEEN,
-    'TV-MA': RATING_ADULT,
-    'NC-17': RATING_ADULT,
+    'TV-Y':    RATING_ANYONE,
+    'TV-Y7':   RATING_ANYONE,
+    'TV-G':    RATING_CHILD,
+    'TV-PG':   RATING_CHILD,
+    'TV-14':   RATING_TEEN,
+    'TV-MA':   RATING_ADULT,
+    'NC-17':   RATING_ADULT,
 
     # Movie ratings
-    'G':     RATING_ANYONE,
-    'PG':    RATING_CHILD,
-    'PG-13': RATING_TEEN,
-    'R':     RATING_ADULT,
+    'G':       RATING_ANYONE,
+    'PG':      RATING_CHILD,
+    'PG-13':   RATING_TEEN,
+    'R':       RATING_ADULT,
+
+    # Our ratings
+    'Anyone':  RATING_ANYONE,
+    'Child':   RATING_CHILD,
+    'Teen':    RATING_TEEN,
+    'Adult':   RATING_ADULT,
+    'Unknown': RATING_UNKNOWN,
     }
 
 
@@ -69,6 +77,20 @@ def get_content_rating(rating):
     if rating in content_ratings:
         return content_ratings[rating]
     return RATING_UNKNOWN
+
+
+def get_content_rating_name(content_rating):
+    if content_rating in (0, 1, 2, 3, 4):
+        return RATING_NAMES
+    return 'Unknown'
+
+
+def compress(data):
+    return zlib.compress(data.encode('utf-8'))
+
+
+def decompress(data):
+    return zlib.decompress(data).decode('utf-8')
 
 
 class PlexException(Exception):
@@ -103,7 +125,6 @@ def config_update(config):
 
         # Now 0.1
         config['config_version'] = '0.1'
-
     # Add new updates here... :)
 
 

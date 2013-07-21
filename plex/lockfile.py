@@ -10,13 +10,13 @@ Copyright (c) 2009, Evan Fosmark
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met: 
+modification, are permitted provided that the following conditions are met:
 
 1. Redistributions of source code must retain the above copyright notice, this
-   list of conditions and the following disclaimer. 
+   list of conditions and the following disclaimer.
 2. Redistributions in binary form must reproduce the above copyright notice,
    this list of conditions and the following disclaimer in the documentation
-   and/or other materials provided with the distribution. 
+   and/or other materials provided with the distribution.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -30,7 +30,7 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 The views and conclusions contained in the software and documentation are those
-of the authors and should not be interpreted as representing official policies, 
+of the authors and should not be interpreted as representing official policies,
 either expressed or implied, of the FreeBSD Project.
 
 """
@@ -43,7 +43,6 @@ To test the code fairly well, do:
 """
 
 import os
-import sys
 import time
 import errno
 from plex.util import PlexException
@@ -54,13 +53,13 @@ class TimeOutError(PlexException):
 
 
 class LockFile(object):
-    def __init__(self, file_name = '__lock__', time_out = 0):
+    def __init__(self, file_name='__lock__', time_out=0):
         self.file_name = file_name
         self.file_handle = None
         self.time_out = time_out
         self.counter = 0
 
-    def acquire(self, time_out = None):
+    def acquire(self, time_out=None):
         if self.file_handle is not None:
             self.counter += 1
             return
@@ -74,7 +73,8 @@ class LockFile(object):
                     time.sleep(0.01)
 
                 try:
-                    self.file_handle = os.open(self.file_name, os.O_CREAT|os.O_RDWR|os.O_EXCL)
+                    self.file_handle = os.open(self.file_name, (
+                        os.O_CREAT | os.O_RDWR | os.O_EXCL))
                     self.counter += 1
                 except OSError as error:
                     self.file_handle = None
@@ -92,7 +92,8 @@ class LockFile(object):
                     time.sleep(0.001)
 
                 try:
-                    self.file_handle = os.open(self.file_name, os.O_CREAT|os.O_RDWR|os.O_EXCL)
+                    self.file_handle = os.open(self.file_name, (
+                        os.O_CREAT | os.O_RDWR | os.O_EXCL))
                     self.counter += 1
                 except OSError as error:
                     self.file_handle = None

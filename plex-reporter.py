@@ -30,19 +30,15 @@ THE SOFTWARE.
 
 import os
 import json
-import codecs
 import logging
 
-from collections import deque
-from itertools import chain
-
 from glob import glob as file_glob
+
 from plex.lockfile import LockFile
-from plex.media import (
-    PlexServerConnection, PlexMediaLibraryObject, 
-    plex_media_object, plex_media_object_batch)
-from plex.event import (PlexEvent, EventParserController, LogLoader)
-from plex.util import (config_load, config_save)
+from plex.media import PlexServerConnection, plex_media_object_batch
+from plex.event import EventParserController, LogLoader
+from plex.util import config_load
+
 
 try:
     ## In python 3, cPickle is now _pickle
@@ -90,14 +86,10 @@ def main():
 
     config = config_load(config_file)
 
-
     log_file_match = os.path.join('logs', config['log_file_match'])
 
-    log_file_template = os.path.join('logs', config['log_file_name'])
-
-
     conn = PlexServerConnection(
-            config['plex_server_host'], config['plex_server_port'])
+        config['plex_server_host'], config['plex_server_port'])
 
     ## Setup controller to keep 10 lines
     if os.path.isfile(pickle_file):
@@ -115,16 +107,14 @@ def main():
     ## Dump state...
     done_events = controller.parse_dump(loader.last_datetime)
 
-    do_pickle(pickle_file, (
-        loader.last_datetime,
-        controller,
-        ))
+    do_pickle(pickle_file, (loader.last_datetime, controller))
 
     live_events = controller.parse_flush()
 
     ## Load event information...
     if False:
-        media_keys = list(set([event.media_key for event in controller.done_events]))
+        media_keys = list(set([
+            event.media_key for event in controller.done_events]))
         media_keys.sort(key=lambda key: int(key))
         media_objects = plex_media_object_batch(conn, media_keys)
     else:
@@ -136,12 +126,14 @@ def main():
         print("{0:#^80}".format("[ Done Events ]"))
         for event in done_events:
             if event.duration is not None and event.duration > 6:
-                print('"' + event.event_id + '":', json.dumps(event.to_dict(), sort_keys=True))
+                print('"' + event.event_id + '":', (
+                    json.dumps(event.to_dict(), sort_keys=True)))
 
     if len(live_events) > 0:
         print("{0:#^80}".format("[ Live Events ]"))
         for event in live_events:
-            print('"' + event.event_id + '":', json.dumps(event.to_dict(), sort_keys=True))
+            print('"' + event.event_id + '":', (
+                json.dumps(event.to_dict(), sort_keys=True)))
 
 if __name__ == '__main__':
     with LockFile() as lock_file:

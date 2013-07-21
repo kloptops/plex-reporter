@@ -36,7 +36,6 @@ from plex.media import PlexServerConnection
 from plex.util import config_load, get_content_rating
 
 
-
 def main():
     if not os.path.isdir('logs'):
         os.mkdir('logs')
@@ -45,7 +44,7 @@ def main():
     config = config_load(config_file, no_save=True)
 
     conn = PlexServerConnection(
-            config['plex_server_host'], config['plex_server_port'])
+        config['plex_server_host'], config['plex_server_port'])
 
     sections_page = conn.fetch('library/sections')
     sections_soup = BeautifulSoup(sections_page)
@@ -56,8 +55,8 @@ def main():
         print('{0:#^40}'.format("[ " + section_tag['title'] + " ]"))
         items_page = conn.fetch('library/sections/{0}/all'.format(key))
         items_soup = BeautifulSoup(items_page)
-        
-        ratings = [[] for i in range(plex.RATING_UNKNOWN+1)]        
+
+        ratings = [[] for i in range(plex.RATING_UNKNOWN + 1)]
 
         for item in items_soup.find_all('directory'):
             string_rating = item.get('contentrating', '')
@@ -65,7 +64,7 @@ def main():
                 print(u"Unknown content rating {0!r} for {1}".format(
                     string_rating, item.get('title')))
                 return
-            
+
             content_rating = get_content_rating(string_rating)
             ratings[content_rating].append(item.get('title'))
         for item in items_soup.find_all('video'):
@@ -74,7 +73,7 @@ def main():
                 print(u"Unknown content rating {0!r} for {1}".format(
                     string_rating, item.get('title')))
                 return
-            
+
             content_rating = get_content_rating(string_rating)
             ratings[content_rating].append(item.get('title'))
 
@@ -89,4 +88,4 @@ def main():
 if __name__ == '__main__':
     # Probably doesn't need this...
     with LockFile() as lf:
-	   main()
+        main()

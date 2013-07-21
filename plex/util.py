@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # -*- python -*-
+from __future__ import print_function
 
 __license__ = """
 
@@ -29,6 +30,15 @@ THE SOFTWARE.
 import os
 import json
 import logging
+import datetime
+
+
+def get_logger(*args):
+    return logging.getLogger('.'.join([
+        arg.__class__.__name__
+        if not isinstance(arg, str) else str(arg)
+        for arg in args]))
+
 
 RATING_ANYONE  = 0
 RATING_CHILD   = 1
@@ -104,7 +114,11 @@ def config_load(config_file, no_save=False):
     else:
         config = {
             'config_version': CONFIG_VERSION,
-            'log_file_name': 'plex-media-server-{datetime[0]:04d}-{datetime[1]:02d}-{datetime[2]:02d}.log',
+            'log_file_name': (
+                'plex-media-server-'
+                '{datetime[0]:04d}-'
+                '{datetime[1]:02d}-'
+                '{datetime[2]:02d}.log'),
             'log_file_match': 'plex-media-server-*.log*',
             'log_save_mode': 'text',
             'plex_last_datetime': '2000-1-1-0-0-0-0',
@@ -135,13 +149,19 @@ def config_save(config_file, config):
     os.rename(config_file_temp, config_file)
 
 
+def datetime_diff(date_a, date_b):
+    a = datetime.datetime(*date_a)
+    b = datetime.datetime(*date_b)
+    return (a - b).seconds
+
+
 class BasketOfHandles(object):
     """
     Allows multiple files to be opened by name, but really only keeps
     max_handles open at a time.
 
-    Not the greatest piece of code, but it helped simplify plex-log-saver's code
-    and performance wise its OK.
+    Not the greatest piece of code, but it helped simplify plex-log-saver's
+    code and performance wise its OK.
     """
     def __init__(self, creator, max_handles=10):
         self.creator = creator
@@ -174,8 +194,10 @@ class BasketOfHandles(object):
     def __enter__(self):
         logger = logging.getLogger(self.__class__.__name__ + '.__enter__')
         if self.in_state is True:
-            logger.error('Unable to enter state multiple times with single object')
-            raise RuntimeError('Unable to enter state multiple times with single object')
+            logger.error(
+                'Unable to enter state multiple times with single object')
+            raise RuntimeError(
+                'Unable to enter state multiple times with single object')
         self.in_state = True
         logger.debug("Entering state")
         return self

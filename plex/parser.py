@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # -*- python -*-
+from __future__ import print_function
 
 __license__ = """
 
@@ -28,7 +29,9 @@ THE SOFTWARE.
 
 import re
 import os
-import logging
+
+from plex.util import get_logger
+
 try:
     from urlparse import urlparse, parse_qs
 except ImportError:
@@ -89,9 +92,10 @@ class PlexLogParser(object):
 
             # 'Jul 03, 2013 02:13:16:353 [4600] DEBUG - .*'
             if not self._re_match((
-                r'(?P<month>\w+) (?P<day>\d+), (?P<year>\d{4})'
-                r' (?P<time>\d+:\d+:\d+:\d+) \[\d+\] (?P<debug_level>\w+)'
-                r' - (?P<content>.*)'), line_text):
+                    r'(?P<month>\w+) (?P<day>\d+), (?P<year>\d{4})'
+                    r' (?P<time>\d+:\d+:\d+:\d+) \[\d+\] (?P<debug_level>\w+)'
+                    r' - (?P<content>.*)'),
+                    line_text):
                 continue
 
             line_body = {}
@@ -120,20 +124,20 @@ class PlexLogParser(object):
                     line_url.query, keep_blank_values=True)
 
                 self._squish_dict(line_body['url_query'])
-            
+
             yield line_body
 
     def line_body_filter(self, line_body):
         """
-        Overload this, when parse_file is called, each line passes through here.
-        If you don't want this line, return False, True if you do.
+        Overload this, when parse_file is called, each line passes through
+        here. If you don't want this line, return False, True if you do.
 
         Also you can modify the structure here.
         """
         return True
 
     def parse_file(self, real_file_name):
-        logger = logging.getLogger(self.__class__.__name__ + '.parse_file')
+        logger = get_logger(self, 'parse_file')
 
         logger.debug("Called parse_file with: {0}".format(real_file_name))
 
@@ -144,5 +148,5 @@ class PlexLogParser(object):
                     continue
 
                 lines.append(line_body)
-        
+
         return lines

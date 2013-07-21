@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # -*- python -*-
+from __future__ import print_function
 
 __license__ = """
 
@@ -29,10 +30,10 @@ THE SOFTWARE.
 import re
 import json
 import gzip
-import datetime
 import itertools
 import collections
 
+from plex.util import datetime_diff
 
 EVENT_MORE      = 0
 EVENT_DONE      = 1
@@ -56,8 +57,7 @@ def event_categorize(event_line):
     url_collators = (
         '/video/:/transcode/segmented',
         '/video/:/transcode/universal',
-        '/video/:/transcode/session',
-        )
+        '/video/:/transcode/session',)
 
     # Session info is only useful if we have a ratingKey or key
     if 'session_info' in event_line and (
@@ -125,8 +125,7 @@ _content_session_info_re = (
     re.compile(r'url=(?P<url>[^,]*),'),
     re.compile(r'key=(?P<key>[^,]*),'),
     re.compile(r'containerKey=(?P<containerKey>[^,]*),'),
-    re.compile(r'metadataId=(?P<metadataId>\d*)'),
-    )
+    re.compile(r'metadataId=(?P<metadataId>\d*)'),)
 
 
 def decode_content_session_info(event_line):
@@ -143,12 +142,6 @@ def decode_content_session_info(event_line):
         event_line['session_info'] = result
 
 
-def datetime_diff(date_a, date_b):
-    a = datetime.datetime(*date_a)
-    b = datetime.datetime(*date_b)
-    return (a - b).seconds
-
-
 def format_date(datetime):
     year, month, day, hour, minute, seconds, microseconds = datetime
     meridian = 'am'
@@ -159,8 +152,8 @@ def format_date(datetime):
     return (
         "{year:04}-{month:02}-{day:02}"
         " {hour:02}:{minute:02}:{seconds:02}{meridian}").format(
-        year=year, month=month, day=day,
-        hour=hour, minute=minute, seconds=seconds, meridian=meridian)
+            year=year, month=month, day=day,
+            hour=hour, minute=minute, seconds=seconds, meridian=meridian)
 
 
 class PlexEvent(object):
@@ -189,7 +182,10 @@ class PlexEvent(object):
 
     def get_event_id(self):
         timestamp = '-'.join(map(str, self.start))
-        return '@'.join([str(self.session_key), str(self.media_key), timestamp])
+        return '@'.join([
+            str(self.session_key),
+            str(self.media_key),
+            timestamp])
     event_id = property(get_event_id)
 
     def to_dict(self):
@@ -219,17 +215,16 @@ class PlexEvent(object):
             ' duration={us.duration},'
             ' resumed={us.resumed},'
             ' stopped={us.stopped},'
-            ' media_object={us.media_object}>'
-            ).format(
+            ' media_object={us.media_object}>').format(
                 us=self,
                 start=(
-                    format_date(self.start) 
-                        if self.start is not None
-                        else None),
+                    format_date(self.start)
+                    if self.start is not None
+                    else None),
                 end=(
-                    format_date(self.end) 
-                        if self.end is not None
-                        else None))
+                    format_date(self.end)
+                    if self.end is not None
+                    else None))
 
 
 class EventParser(object):
@@ -256,7 +251,7 @@ class EventParser(object):
 
         # Skip start lines that have a duration that's smaller than
         # the time.
-        if ('duration' in event_line['url_query'] and 
+        if ('duration' in event_line['url_query'] and
             int(event_line['url_query']['time']) >
                 int(event_line['url_query']['duration'])):
             # I don't get why these events even occur... :/
@@ -319,10 +314,10 @@ class EventParser(object):
                     reversed(previous_lines), next_lines):
                 if len(z_category) == 0:
                     continue
-                if (z_category[0] == "/:/session_info" and 
+                if (z_category[0] == "/:/session_info" and
                         'ratingKey' in z_line['session_info'] and
-                        z_line['session_info']['ratingKey'] ==
-                            self.event.media_key):
+                        (z_line['session_info']['ratingKey'] ==
+                            self.event.media_key)):
                     self.event.session_key = z_category[1]
                     break
 
@@ -339,28 +334,29 @@ class EventParser(object):
 
                 if (z_category[0] == "/:/session_info" and
                         'ratingKey' in z_line['session_info'] and
-                        z_line['session_info']['ratingKey'] ==
-                            self.event.media_key):
+                        (z_line['session_info']['ratingKey'] ==
+                            self.event.media_key)):
                     self.event.session_key = z_category[1]
                     break
 
         ## Still no session_key, it used to be just for sessions, now we use it
         ## for a unique identifier... probably should fix this :/
         if (self.event.session_key == '' and
-                    self.controller.debug_stream is not None):
+                self.controller.debug_stream is not None):
 
-            debug_stream = self.controller.debug_stream
-            print("#" * 80, file=debug_stream)
+            ds = self.controller.debug_stream
+            print("#" * 80, file=ds)
+
             for previous_line in previous_lines:
-                print("< ", json.dumps(previous_line, sort_keys=True),
-                    file=debug_stream)
-            print("=", json.dumps(event_line, sort_keys=True),
-                file=debug_stream)
-            print(self.event)
+                print("<", json.dumps(previous_line, sort_keys=True), file=ds)
+
+            print("=", json.dumps(event_line, sort_keys=True), file=ds)
+            print(self.event, file=ds)
+
             for next_line in next_lines:
-                print("> ", json.dumps(next_line, sort_keys=True),
-                    file=debug_stream)
-            print("#" * 80, file=debug_stream)
+                print(">", json.dumps(next_line, sort_keys=True), file=ds)
+
+            print("#" * 80, file=ds)
 
         self.first_line = False
         self.last = event_line
@@ -369,7 +365,8 @@ class EventParser(object):
 
     def parse(self, event_line, previous_lines, next_lines):
         if self.first_line:
-            return self._parse_first_line(event_line, previous_lines, next_lines)
+            return self._parse_first_line(
+                event_line, previous_lines, next_lines)
 
         if event_line["url_query"]["state"] == "playing":
             if (datetime_diff(
@@ -475,7 +472,7 @@ class EventParserController(object):
             self.done_events.append(event_parser.event)
             return True
 
-        else: # parse_result = EVENT_MORE
+        else:  # parse_result = EVENT_MORE
             return True
 
     def parse_event(self, event_category, event_line):
@@ -495,15 +492,14 @@ class EventParserController(object):
             return self._parse_timeline_event(event_category, event_line)
 
         elif event_category[0] == '/:/session_info':
-            # print("-", event_category, json.dumps(event_line, sort_keys=True))
             return True
 
         else:
             return True
 
     def parse_reset(self):
-        """Totally resets the controller and its parsers, leaves the done_events
-        alone in place.
+        """Totally resets the controller and its parsers, leaves the
+        done_events alone in place.
         """
         self.event_parsers.clear()
         self.previous_lines.clear()
@@ -555,7 +551,7 @@ class EventParserController(object):
 
     def parse_dump(self, last_datetime):
         """Clear out null events, returns done_events.
-        
+
         Call this before you serialize this object. Events returned here are
         stable, and shouldn't change.
         """
@@ -601,12 +597,13 @@ class LogLoader(object):
     It will feed event_lines automajically into the controller object.
 
     If you're having problems with events not showing up properly, or events
-    don't have enough information, and you are trying to find more info, pass 
+    don't have enough information, and you are trying to find more info, pass
     this flag as true and it'll pass all log lines to the parser. This can help
     with debugging.
     """
     def __init__(self, controller, last_datetime=None, want_all=False,
             max_load=None):
+
         self.controller = controller
         self.last_datetime = last_datetime
         self.want_all = want_all
@@ -616,6 +613,7 @@ class LogLoader(object):
         self.max_load = max_load
 
     def load_file(self, log_file):
+
         if log_file.endswith('.gz'):
             open_cmd = gzip.open
         else:
@@ -639,15 +637,16 @@ class LogLoader(object):
                 event_line = json.loads(line)
                 if first_line:
                     first_line = False
-                    ## Skip this file if the last_datetime is already set on the
-                    ## first line and last_datetime[:3] is bigger than the first
-                    ## lines datetime[:3].
+                    ## Skip this file if the last_datetime is already set on
+                    ## the first line and last_datetime[:3] is bigger than the
+                    ## first lines datetime[:3].
                     if (self.last_datetime is not None and
-                            self.last_datetime[:3] > event_line['datetime'][:3]):
+                            (self.last_datetime[:3] >
+                                event_line['datetime'][:3])):
                         break
 
                 # Skip old events...
-                if (self.last_datetime is not None and 
+                if (self.last_datetime is not None and
                         self.last_datetime > event_line['datetime']):
                     continue
 

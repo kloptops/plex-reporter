@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # -*- python -*-
+from __future__ import print_function
 
 __license__ = """
 
@@ -26,9 +27,9 @@ THE SOFTWARE.
 
 """
 
-import logging
 import requests
-from plex.util import PlexException, get_content_rating, RATING_UNKNOWN
+from plex.util import (
+    PlexException, get_content_rating, RATING_UNKNOWN, get_logger)
 from bs4 import BeautifulSoup
 
 
@@ -53,10 +54,10 @@ class PlexServerConnection(object):
 
     def check_connection(self):
         # Check if medialookup is enabled, and test the connection if so
-        logger = logging.getLogger(self.__class__.__name__ + '.check_connection')
+        logger = get_logger(self, 'check_connection')
         logger.debug("Called check_connection")
         try:
-            check_req=requests.get('http://{host}:{port}/servers'.format(
+            check_req = requests.get('http://{host}:{port}/servers'.format(
                 host=self.host, port=self.port))
 
             check_soup = BeautifulSoup(check_req.text)
@@ -82,7 +83,7 @@ class PlexServerConnection(object):
 
     def fetch_metadata(self, key):
         assert isinstance(key, int)
-        logger = logging.getLogger(self.__class__.__name__ + '.fetch_metadata')
+        logger = get_logger(self, 'fetch_metadata')
 
         if not self.enabled:
             raise PlexServerException(
@@ -98,8 +99,7 @@ class PlexServerConnection(object):
         if metadata_req.status_code != 200:
             raise PlexServerException((
                 'Unable to query metadata for {key}:'
-                ' [{status_code}] - {reason}'
-                ).format(
+                ' [{status_code}] - {reason}').format(
                     key=key,
                     status_code=metadata_req.status_code,
                     reason=metadata_req.reason))
@@ -108,7 +108,7 @@ class PlexServerConnection(object):
         return self.metadata_cache[key]
 
     def fetch(self, path):
-        logger = logging.getLogger(self.__class__.__name__ + '.fetch')
+        logger = get_logger(self, 'fetch')
 
         if not self.enabled:
             raise PlexServerException(
@@ -121,11 +121,11 @@ class PlexServerConnection(object):
             host=self.host, port=self.port, path=path))
 
         if page_req.status_code != 200:
-            raise PlexServerException(
-                ('Unable to query path {path}:'
+            raise PlexServerException((
+                'Unable to query path {path}:'
                 ' [{status_code}] - {reason}').format(
-                path=path, status_code=page_req.status_code,
-                reason=page_req.reason))
+                    path=path, status_code=page_req.status_code,
+                    reason=page_req.reason))
 
         self.page_cache[path] = page_req.text
         return self.page_cache[path]
@@ -151,6 +151,7 @@ class PlexMediaLibraryObject(object):
             self._xml = None
         else:
             self._parse_xml(xml, soup)
+
     def get_xml(self):
         return self._xml
     xml = property(get_xml, set_xml)
@@ -161,9 +162,9 @@ class PlexMediaLibraryObject(object):
 
         tag = soup.find(ratingkey=True)
         if int(tag['ratingkey']) != self.key:
-            raise PlexMediaException(
-                'Incorrect xml metadata, passed key {0}, xml key {1}'.format(
-                self.key, int(tag['ratingkey'])))
+            raise PlexMediaException((
+                'Incorrect xml metadata, passed key {0}, xml key {1}').format(
+                    self.key, int(tag['ratingkey'])))
 
 
 class PlexMediaVideoObject(PlexMediaLibraryObject):
@@ -173,8 +174,8 @@ class PlexMediaVideoObject(PlexMediaLibraryObject):
     def clear(self):
         super(PlexMediaVideoObject, self).clear()
         ## TODO: not sure if content ratings should be in the base object?
-        ##   I store audio or pictures on plex so I have no idea if they have
-        ##   contentratings... :(
+        ##   I don't store audio or pictures on plex so I have no idea if they
+        ##   have contentratings... :(
         self.rating = ''
         self.rating_code = RATING_UNKNOWN
         self.duration = 0
@@ -247,7 +248,7 @@ class PlexMediaEpisodeObject(PlexMediaVideoObject):
             ' key={us.key}, series_title={us.series_title!r},'
             ' season={us.season}, episode={us.episode},'
             ' title={us.title!r}>').format(
-            us=self)
+                us=self)
 
 
 class PlexMediaMovieObject(PlexMediaVideoObject):
@@ -267,7 +268,7 @@ class PlexMediaMovieObject(PlexMediaVideoObject):
             '<{us.__class__.__name__}'
             ' key={us.key}, title={us.title!r}'
             ' year={us.year}>').format(
-            us=self)
+                us=self)
 
 
 def plex_media_object(conn, key, xml=None, soup=None):
@@ -323,7 +324,7 @@ def plex_media_object_batch(conn, keys, batch_size=20):
     if conn is None:
         raise TypeError("Argument 'conn' must not be None")
 
-    logger = logging.getLogger('plex_media_object_batch')
+    logger = get_logger('plex_media_object_batch')
     logger.debug("Fetching {0} media objects".format(len(keys)))
 
     results = {}
@@ -352,4 +353,3 @@ def plex_media_object_batch(conn, keys, batch_size=20):
     logger.debug("Fetched {0} media objects".format(len(results)))
 
     return results
-

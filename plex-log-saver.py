@@ -31,16 +31,14 @@ THE SOFTWARE.
 import os
 ## Uncomment the next line if you plan on using this script in the windows
 ## task scheduler
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
-import sys
+#os.chdir(os.path.dirname(os.path.abspath(__file__)))
 import json
 import logging
-import datetime
 
 from glob import glob as file_glob
 
-# Only import what is needed, don't need requests.
-from plex.util import BasketOfHandles, config_load, config_save
+# Only import what is needed, don't need or want requests.
+from plex.util import BasketOfHandles, config_load, config_save, datetime_diff
 from plex.lockfile import LockFile
 from plex.parser import PlexLogParser
 
@@ -62,12 +60,6 @@ class PlexSuperLogParser(PlexLogParser):
         return super(PlexSuperLogParser, self).line_body_filter(line_body)
 
 
-def datetime_diff(date_a, date_b):
-    a = datetime.datetime(*date_a)
-    b = datetime.datetime(*date_b)
-    return a - b
-
-
 def main():
     logging.info('{0:#^40}'.format('[ Plex Log Saver ]'))
 
@@ -84,13 +76,11 @@ def main():
     log_file_template = os.path.join(
         'logs', config['log_file_name'])
 
-
     if config['log_save_mode'] == 'gzip':
         import gzip
         log_open = gzip.open
     else:
         log_open = open
-
 
     last_datetime = tuple(map(int, config['plex_last_datetime'].split('-')))
 
@@ -115,22 +105,24 @@ def main():
 
     time_diff = datetime_diff(all_lines[0]['datetime'], last_datetime)
 
-    logging.info('    Last entry last run: {0:04d}-{1:02d}-{2:02d} {3:02d}:{4:02d}:{5:02d}'.format(
-        *last_datetime))
-    logging.info('Earliest entry this run: {0:04d}-{1:02d}-{2:02d} {3:02d}:{4:02d}:{5:02d}'.format(
-        *all_lines[0]['datetime']))
+    logging.info((
+        '    Last entry last run:'
+        ' {0:04d}-{1:02d}-{2:02d} {3:02d}:{4:02d}:{5:02d}').format(
+            *last_datetime))
+    logging.info((
+        'Earliest entry this run:'
+        ' {0:04d}-{1:02d}-{2:02d} {3:02d}:{4:02d}:{5:02d}').format(
+            *all_lines[0]['datetime']))
 
+    if time_diff > 60:
+        logging.warn((
+            'Possibly missing {0} seconds of log files').format(time_diff))
 
-    if time_diff.seconds > 60:
-        if time_diff.days > 0:
-            logging.warn('Missing {} days of log files'.format(time_diff.days))
-        else:
-            logging.warn('Possibly missing {} seconds of log files'.format(time_diff.seconds))
+    logging.info('{0} new log lines added'.format(len(all_lines)))
 
-
-    logging.info('{} new log lines added'.format(len(all_lines)))
-
-    # BasketOfHandles handles our open files for us, keeping only 5 open at a time.
+    ## TODO: replace this! No longer needed...
+    # BasketOfHandles handles our open files for us,
+    # keeping only 5 open at a time.
     with BasketOfHandles(log_open, 5) as basket:
         for line_body in all_lines:
             log_file_name = log_file_template.format(**line_body)
@@ -160,7 +152,7 @@ if __name__ == '__main__':
 
         try:
             while True:
-                # testing how much memory is used if it runs as a simple daemon...
+                # testing how much memory is used if it runs as a simple daemon
                 if os.path.isfile('__shutdown__'):
                     os.remove('__shutdown__')
                     break

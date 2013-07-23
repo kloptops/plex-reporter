@@ -50,38 +50,38 @@ RATING_NAMES   = ['Anyone', 'Child', 'Teen', 'Adult', 'Unknown']
 
 content_ratings = {
     # TV ratings, obvious by the TV- prefix... o_o
-    'TV-Y':    RATING_ANYONE,
-    'TV-Y7':   RATING_ANYONE,
-    'TV-G':    RATING_CHILD,
-    'TV-PG':   RATING_CHILD,
-    'TV-14':   RATING_TEEN,
-    'TV-MA':   RATING_ADULT,
-    'NC-17':   RATING_ADULT,
+    'tv-y':    RATING_ANYONE,
+    'tv-y7':   RATING_ANYONE,
+    'tv-g':    RATING_CHILD,
+    'tv-pg':   RATING_CHILD,
+    'tv-14':   RATING_TEEN,
+    'tv-ma':   RATING_ADULT,
+    'nc-17':   RATING_ADULT,
 
     # Movie ratings
-    'G':       RATING_ANYONE,
-    'PG':      RATING_CHILD,
-    'PG-13':   RATING_TEEN,
-    'R':       RATING_ADULT,
+    'g':       RATING_ANYONE,
+    'pg':      RATING_CHILD,
+    'pg-13':   RATING_TEEN,
+    'r':       RATING_ADULT,
 
     # Our ratings
-    'Anyone':  RATING_ANYONE,
-    'Child':   RATING_CHILD,
-    'Teen':    RATING_TEEN,
-    'Adult':   RATING_ADULT,
-    'Unknown': RATING_UNKNOWN,
+    'anyone':  RATING_ANYONE,
+    'child':   RATING_CHILD,
+    'teen':    RATING_TEEN,
+    'adult':   RATING_ADULT,
+    'unknown': RATING_UNKNOWN,
     }
 
 
 def get_content_rating(rating):
-    if rating in content_ratings:
-        return content_ratings[rating]
+    if rating.lower() in content_ratings:
+        return content_ratings[rating.lower()]
     return RATING_UNKNOWN
 
 
 def get_content_rating_name(content_rating):
     if content_rating in (0, 1, 2, 3, 4):
-        return RATING_NAMES
+        return RATING_NAMES[content_rating]
     return 'Unknown'
 
 

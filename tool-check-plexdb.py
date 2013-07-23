@@ -29,11 +29,13 @@ THE SOFTWARE.
 """
 
 import os
-import plex
+import plex.util
+import itertools
 from bs4 import BeautifulSoup
 from plex.lockfile import LockFile
 from plex.media import PlexServerConnection
-from plex.util import config_load, get_content_rating
+from plex.util import (
+    config_load, get_content_rating, get_content_rating_name, RATING_UNKNOWN)
 
 
 def main():
@@ -56,23 +58,12 @@ def main():
         items_page = conn.fetch('library/sections/{0}/all'.format(key))
         items_soup = BeautifulSoup(items_page)
 
-        ratings = [[] for i in range(plex.RATING_UNKNOWN + 1)]
+        ratings = [[] for i in range(RATING_UNKNOWN + 1)]
 
-        for item in items_soup.find_all('directory'):
+        for item in itertools.chain(
+                items_soup.find_all('directory'),
+                items_soup.find_all('video')):
             string_rating = item.get('contentrating', '')
-            if string_rating not in plex.content_ratings:
-                print(u"Unknown content rating {0!r} for {1}".format(
-                    string_rating, item.get('title')))
-                return
-
-            content_rating = get_content_rating(string_rating)
-            ratings[content_rating].append(item.get('title'))
-        for item in items_soup.find_all('video'):
-            string_rating = item.get('contentrating', '')
-            if string_rating not in plex.content_ratings:
-                print(u"Unknown content rating {0!r} for {1}".format(
-                    string_rating, item.get('title')))
-                return
 
             content_rating = get_content_rating(string_rating)
             ratings[content_rating].append(item.get('title'))
@@ -80,7 +71,7 @@ def main():
         for rating, shows in enumerate(ratings):
             if len(shows) == 0:
                 continue
-            print(u"  {0}".format(plex.RATING_NAMES[rating]))
+            print(u"  {0}".format(get_content_rating_name(rating)))
             for show in shows:
                 print(u"    {0}".format(show))
             print('')

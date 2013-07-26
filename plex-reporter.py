@@ -31,6 +31,7 @@ THE SOFTWARE.
 import os
 import json
 import logging
+import itertools
 
 from glob import glob as file_glob
 
@@ -92,11 +93,16 @@ def main():
         config['plex_server_host'], config['plex_server_port'])
 
     ## Setup controller to keep 10 lines
+    debug_handle = open('debug.txt', 'wt')
+
     if os.path.isfile(pickle_file):
         last_datetime, controller = do_unpickle(pickle_file)
     else:
         controller = EventParserController(10)
         last_datetime = None
+
+    controller.debug_stream = debug_handle
+    controller.debug_keys = ['c1e289c8a2ad7c411c75333970a0ea83e0dda017']
 
     loader = LogLoader(controller, last_datetime=last_datetime, want_all=False)
 
@@ -107,6 +113,10 @@ def main():
     ## Dump state...
     done_events = controller.parse_dump(loader.last_datetime)
 
+    controller.debug_stream = None
+    controller.debug_keys = []
+    debug_handle.close()
+
     do_pickle(pickle_file, (loader.last_datetime, controller))
 
     live_events = controller.parse_flush()
@@ -114,7 +124,8 @@ def main():
     ## Load event information...
     if False:
         media_keys = list(set([
-            event.media_key for event in controller.done_events]))
+            event.media_key for event in (
+                itertools.chain(done_events, live_events))]))
         media_keys.sort(key=lambda key: int(key))
         media_objects = plex_media_object_batch(conn, media_keys)
     else:
@@ -125,15 +136,12 @@ def main():
     if len(done_events) > 0:
         print("{0:#^80}".format("[ Done Events ]"))
         for event in done_events:
-            if event.duration is not None and event.duration > 6:
-                print('"' + event.event_id + '":', (
-                    json.dumps(event.to_dict(), sort_keys=True)))
+            print(json.dumps(event.to_dict(), sort_keys=True))
 
     if len(live_events) > 0:
         print("{0:#^80}".format("[ Live Events ]"))
         for event in live_events:
-            print('"' + event.event_id + '":', (
-                json.dumps(event.to_dict(), sort_keys=True)))
+            print(json.dumps(event.to_dict(), sort_keys=True))
 
 if __name__ == '__main__':
     with LockFile() as lock_file:

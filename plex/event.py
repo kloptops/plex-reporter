@@ -56,7 +56,8 @@ def event_categorize(event_line):
     url_collators = (
         '/video/:/transcode/segmented',
         '/video/:/transcode/universal',
-        '/video/:/transcode/session',)
+        '/video/:/transcode/session',
+        )
 
     # Session info is only useful if we have a ratingKey or key
     if 'session_info' in event_line and (
@@ -172,6 +173,7 @@ class PlexEvent(object):
         self.resumed       = kwargs.get('resumed', False)
         # True stopped, False paused, None if we have no idea... :)
         self.stopped       = kwargs.get('stopped', None)
+        self.live          = kwargs.get('live', False)
 
     def get_duration(self):
         if self.end is None or self.start is None:
@@ -198,6 +200,7 @@ class PlexEvent(object):
             'end':           self.end,
             'resumed':       self.resumed,
             'stopped':       self.stopped,
+            'live':          self.live,
             }
 
     def __repr__(self):
@@ -214,6 +217,7 @@ class PlexEvent(object):
             ' duration={us.duration},'
             ' resumed={us.resumed},'
             ' stopped={us.stopped},'
+            ' live={us.live},'
             ' media_object={us.media_object}>').format(
                 us=self,
                 start=(
@@ -613,6 +617,7 @@ class EventParserController(object):
             event_parser = self.event_parsers[event_key]
             if not event_parser.first_line:
                 event_parser.finish()
+                event_parser.event.live = True
                 done_events.append(event_parser.event)
                 del self.event_parsers[event_key]
 

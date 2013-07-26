@@ -29,11 +29,14 @@ THE SOFTWARE.
 
 import re
 import datetime
+from bs4 import BeautifulSoup
 from plex.event import PlexEvent
-from plex.util import get_content_rating
+from plex.media import plex_media_object
+from plex.util import get_content_rating, get_content_rating_name
 
 
 _client_restriction_types = {}
+_restriction_action_types = {}
 
 
 def client_restriction(**kwargs):
@@ -46,19 +49,120 @@ def client_restriction(**kwargs):
     return _client_restriction_types[kwargs['type']](**kwargs)
 
 
-class ClientRestriction(object):
+def restriction_action(**kwargs):
+    if 'type' not in kwargs:
+        raise ValueError("argument 'type' is required!")
 
+    if kwargs['type'] not in _restriction_action_types:
+        raise ValueError("argument 'type' is not a known action!")
+
+    return _restriction_action_types[kwargs['type']](**kwargs)
+
+
+class ClientRestriction(object):
     def __init__(self, **kwargs):
         self.type = kwargs.get('type')
+        self.action = kwargs.get('action', None)
+
+    def requires_media_object(self):
+        return False
 
     def match(self, event):
-        pass
+        return False
 
     def to_dict(self, result=None):
         if result is None:
             result = {}
         result['type'] = self.type
         return result
+
+    def __repr__(self):
+        return (
+            '<{us.__class__.__name__}'
+            '>').format(us=self)
+
+
+class LogicalRestriction(ClientRestriction):
+    def __init__(self, **kwargs):
+        super(LogicalRestriction, self).__init__(**kwargs)
+        if 'ops' not in kwargs:
+            raise ValueError("argument 'ops' is required!")
+        ops = kwargs.get('ops', [])
+        self.ops = []
+        for op in ops:
+            self.ops.append(client_restriction(**op))
+
+    def match(self, event):
+        for op in self.ops:
+            if op.match(event):
+                return True
+        return False
+
+    def to_dict(self, result=None):
+        if result is None:
+            result = {}
+        super(LogicalRestriction, self).to_dict(result)
+        result['ops'] = []
+        for op in self.ops:
+            result['ops'].append(op.to_dict())
+        return result
+
+    def requires_media_object(self):
+        for op in self.ops:
+            if self.requires_media_object():
+                return True
+
+    __op_repr__ = property(lambda self: ', '.join(map(str, self.ops)))
+
+    def __repr__(self):
+        return (
+            '<{us.__class__.__name__}'
+            ' ops=[{us.__op_repr__}]'
+            '>').format(us=self)
+
+
+class OrRestriction(LogicalRestriction):
+    def match(self, event):
+        for op in self.ops:
+            if op.match(event):
+                return True
+        return False
+
+
+class AndRestriction(LogicalRestriction):
+    def match(self, event):
+        for op in self.ops:
+            if not op.match(event):
+                return False
+        return True
+
+
+class NotRestriction(ClientRestriction):
+    def __init__(self, **kwargs):
+        super(NotRestriction, self).__init__(**kwargs)
+        if 'op' not in kwargs:
+            raise ValueError("argument 'op' is required!")
+        op = kwargs.get('op')
+        self.op = client_restriction(**op)
+
+    def match(self, event):
+        return not self.op.match(event)
+
+    def to_dict(self, result=None):
+        if result is None:
+            result = {}
+        super(NotRestriction, self).to_dict(result)
+        result['op'] = self.op.to_dict()
+        return result
+
+    def requires_media_object(self):
+        return self.op.requires_media_object()
+
+    def __repr__(self):
+        return (
+            '<{us.__class__.__name__}'
+            ' op={us.op}'
+            '>').format(us=self)
 
 
 class TimeRestriction(ClientRestriction):
@@ -82,20 +186,20 @@ class TimeRestriction(ClientRestriction):
     """
 
     _day_to_days = {
-        'everyday':  [0, 1, 2, 3, 4, 5, 6],
-        'weekday':   [0, 1, 2, 3, 4],
-        'weekend':   [5, 6],
-        'weeknight': [0, 1, 2, 3, 6],
-        'monday':    [0], 'mon': [0],
-        'tuesday':   [1], 'tue': [1],
-        'wednesday': [2], 'wed': [2],
-        'thursday':  [3], 'thu': [3],
-        'friday':    [4], 'fri': [4],
-        'saturday':  [5], 'sat': [5],
-        'sunday':    [6], 'sun': [6],
-        '0': [0], '1': [1], '2': [2],
-        '3': [3], '4': [4], '5': [5],
-        '6': [6],
+        'everyday':  [1, 2, 3, 4, 5, 6, 7],
+        'weekday':   [1, 2, 3, 4, 5],
+        'weekend':   [6, 7],
+        'weeknight': [1, 2, 3, 4, 7],
+        'monday':    [1], 'mon': [1],
+        'tuesday':   [2], 'tue': [2],
+        'wednesday': [3], 'wed': [3],
+        'thursday':  [4], 'thu': [4],
+        'friday':    [5], 'fri': [5],
+        'saturday':  [6], 'sat': [6],
+        'sunday':    [7], 'sun': [7],
+        '1': [1], '2': [2], '3': [3],
+        '4': [4], '5': [5], '6': [6],
+        '7': [7],
         }
 
     _day_to_days[None]         = _day_to_days['everyday']
@@ -103,7 +207,7 @@ class TimeRestriction(ClientRestriction):
     _day_to_days['weekends']   = _day_to_days['weekend']
     _day_to_days['weekdays']   = _day_to_days['weekday']
 
-    _day_to_days_cache = {None: [0, 1, 2, 3, 4, 5, 6]}
+    _day_to_days_cache = {None: [1, 2, 3, 4, 5, 6, 7]}
 
     def _resolve_days(self, day_string):
         if day_string in self._day_to_days_cache:
@@ -183,7 +287,7 @@ class TimeRestriction(ClientRestriction):
         self._days = days_string
 
     def get_days(self):
-        return self._days
+        return self._days if self._days is not None else 'everyday'
     days = property(get_days, set_days)
 
     def set_start(self, start_string):
@@ -199,14 +303,14 @@ class TimeRestriction(ClientRestriction):
         self._end = end_string
 
     def get_end(self):
-        return self._start
+        return self._end
     end = property(get_end, set_end)
 
     def to_dict(self, result=None):
         if result is None:
             result = {}
         super(TimeRestriction, self).to_dict(result)
-        if self.days is not None:
+        if self._days is not None:
             result['days'] = self.days
         result['start'] = self.start
         result['end'] = self.end
@@ -219,8 +323,10 @@ class TimeRestriction(ClientRestriction):
     def match(self, event):
         start = datetime.datetime(*event.start)
         end   = datetime.datetime(*event.end)
+        start_time = start.time()
+        end_time = end.time()
 
-        if start.day() in self._days_match:
+        if start.isoweekday() in self._days_match:
             start_time = start.time()
 
             if (self._inner_match() and
@@ -229,11 +335,11 @@ class TimeRestriction(ClientRestriction):
                 return True
 
             if (not self._inner_match() and (
-                    start_time < self._start_match or
-                    self._end_match < start_time)):
+                    self._start_match < start_time or
+                    start_time < self._end_match)):
                 return True
 
-        elif end.day() in self._days_match:
+        if end.isoweekday() in self._days_match:
             end_time = end.time()
 
             if (self._inner_match() and
@@ -242,40 +348,226 @@ class TimeRestriction(ClientRestriction):
                 return True
 
             if (not self._inner_match() and (
-                    end_time < self._start_match or
-                    self._end_match < end_time)):
+                    self._start_match < end_time or
+                    end_time < self._end_match)):
                 return True
 
         return False
 
+    def __repr__(self):
+        return (
+            '<{us.__class__.__name__}'
+            ' days={us.days!r},'
+            ' start={us.start!r},'
+            ' end={us.end!r}'
+            '>').format(us=self)
+
 
 class ContentRestriction(ClientRestriction):
-    def __init__(self):
+    def __init__(self, **kwargs):
+        super(ContentRestriction, self).__init__(**kwargs)
+
+        if 'rating' not in kwargs:
+            raise ValueError("argument 'rating' is required!")
+
+        self.rating = kwargs['rating']
+
+    def set_rating(self, rating):
+        assert isinstance(rating, (int, str))
+        if isinstance(rating, str):
+            self._rating_code = get_content_rating(rating)
+        else:
+            self._rating_code = rating
+
+        self._rating = get_content_rating_name(self._rating_code)
+
+    def get_rating(self):
+        return self._rating
+    rating = property(get_rating, set_rating)
+
+    def get_rating_code(self):
+        return self._rating_code
+    rating_code = property(get_rating_code)
+
+    def requires_media_object(self):
+        return True
+
+    def match(self, event):
+        ## A hack...
+        if event.media_object is None:
+            return True
+
+        if event.media_object.rating_code < self.rating_code:
+            return True
+
+        return False
+
+    def __repr__(self):
+        return (
+            '<{us.__class__.__name__}'
+            ' rating={us.rating!r},'
+            ' rating_code={us.rating_code}'
+            '>').format(us=self)
+
+
+class ReleaseDateRestriction(ClientRestriction):
+    """
+    ReleaseDateRestriction()
+
+    Restricts shows that are recently added/released from being viewed.
+    """
+
+    def __init__(self, **kwargs):
         pass
 
+
+_client_restriction_types['or']      = OrRestriction
+_client_restriction_types['and']     = AndRestriction
+_client_restriction_types['not']     = NotRestriction
 _client_restriction_types['time']    = TimeRestriction
 _client_restriction_types['content'] = ContentRestriction
+_client_restriction_types['release'] = ReleaseDateRestriction
+
+
+class RestrictionAction(object):
+    def __init__(self, **kwargs):
+        self.type = kwargs.get('type')
+
+    def requires_live_event(self):
+        return False
+
+    def match(self, event):
+        return False
+
+    def to_dict(self, result=None):
+        if result is None:
+            result = {}
+        result['type'] = self.type
+        return result
+
+    def __repr__(self):
+        return (
+            '<{us.__class__.__name__}'
+            '>').format(us=self)
+
+
+class ActionLiveStopPlayback(RestrictionAction):
+    def requires_live_event(self):
+        return True
+
+
+class ActionEmail(RestrictionAction):
+    pass
+
+
+_restriction_action_types['stop_playback'] = ActionLiveStopPlayback
+_restriction_action_types['email'] = ActionEmail
 
 
 class Client(object):
+    """
+    This is the client. Clients contain lots of information :[
+    """
+
     def __init__(self, **kwargs):
-        self.name         = kwargs.get('name', 'Unknown')
-        self.restrictions = kwargs.get('restrictions', [])
+        self.name    = kwargs.get('name', 'Unknown')
+        self.profile = kwargs.get('profile', 'default')
 
 
 def main():
-    test_dicts = [
-        {'type': 'time', 'start': '12pm', 'end': '7pm', 'days': 'weeknights'},
-        {'type': 'time', 'start': '12pm', 'end': '7pm', 'days': 'mon,tue,wed'},
-        {'type': 'time', 'start': '12pm', 'end': '7pm'},
+    sample_xml_a = (
+        '<?xml version="1.0" encoding="UTF-8"?><MediaContainer size="1"'
+        ' allowSync="1" identifier="com.plexapp.plugins.library"'
+        ' librarySectionID="1" librarySectionUUID=""'
+        ' mediaTagPrefix="/system/bundle/media/flags/"'
+        ' mediaTagVersion=""><Video ratingKey="1337"'
+        ' key="/library/metadata/1337" parentRatingKey="1336"'
+        ' grandparentRatingKey="1335" guid="BUTTS"'
+        ' type="episode" title="Episode 1"'
+        ' grandparentKey="/library/metadata/1335"'
+        ' parentKey="/library/metadata/1336" grandparentTitle="Example Show"'
+        ' contentRating="TV-MA" summary="This show is an example."'
+        ' index="1" parentIndex="1" rating="0" year="2012" thumb="" art=""'
+        ' parentThumb="" grandparentThumb="" duration="3600000"'
+        ' originallyAvailableAt="2012-10-14" addedAt="1372067395"'
+        ' updatedAt="1372067395"></Video>'
+        '<Directory ratingKey="1335"><Genre tag="Action" />'
+        '<Genre tag="Restrict New" /></Directory>'
+        '</MediaContainer>'
+        )
+    sample_xml_b = sample_xml_a.replace('TV-MA', 'TV-14')
+    sample_xml_c = sample_xml_a.replace('TV-MA', 'TV-PG')
+
+    event_base = {
+        'media_key': 1337,
+        'session_key': "BLAH",
+        'device_ip': "127.0.0.1",
+        'device_client': "Sample",
+        }
+
+    events = [
+        PlexEvent(
+            start=[2013, 07, 10, 20, 30,  1,   0],
+            end  =[2013, 07, 10, 21,  9, 15, 458],
+            media_object=plex_media_object(None, 1337, sample_xml_a),
+            **event_base),
+        PlexEvent(
+            start=[2013, 07, 10, 21, 30,  1,   0],
+            end  =[2013, 07, 10, 22,  9, 15, 458],
+            media_object=plex_media_object(None, 1337, sample_xml_a),
+            **event_base),
+        PlexEvent(
+            start=[2013, 07, 12, 20, 30,  1,   0],
+            end  =[2013, 07, 12, 21,  9, 15, 458],
+            media_object=plex_media_object(None, 1337, sample_xml_b),
+            **event_base),
+        PlexEvent(
+            start=[2013, 07, 12, 21, 30,  1,   0],
+            end  =[2013, 07, 12, 22,  9, 15, 458],
+            media_object=plex_media_object(None, 1337, sample_xml_b),
+            **event_base),
+        PlexEvent(
+            start=[2013, 07, 12, 23, 59,  1,   0],
+            end  =[2013, 07, 13,  0, 29, 15, 458],
+            media_object=plex_media_object(None, 1337, sample_xml_c),
+            **event_base),
+        PlexEvent(
+            start=[2013, 07, 13, 12,  6,  1,   0],
+            end  =[2013, 07, 13, 12, 29, 15, 458],
+            **event_base),
         ]
 
-    for test_dict in test_dicts:
-        test_restriction = client_restriction(**test_dict)
+    raw_restrictions = [
+        {'type': 'or', 'ops': [
+            {'type': 'time', 'start': '9pm', 'end': '7am', 'days': 'weeknights'},
+            {'type': 'time', 'start': '10pm', 'end': '7am', 'days': 'everyday'},
+            ]},
+        {'type': 'and', 'ops': [
+            {'type': 'time', 'start': '9pm', 'end': '7am', 'days': 'weeknights'},
+            {'type': 'time', 'start': '10pm', 'end': '7am', 'days': 'everyday'},
+            ]},
+        {'type': 'and', 'ops': [
+            {'type': 'not', 'op':
+                {'type': 'time', 'start': '9pm', 'end': '7am', 'days': 'weeknights'}},
+            {'type': 'time', 'start': '10pm', 'end': '7am', 'days': 'everyday'},
+            ]},
+        {'type': 'content', 'rating': 'Teen'},
+        ]
 
-        print(test_restriction._days, test_restriction._days_match)
-        print(test_restriction._start, test_restriction._start_match)
-        print(test_restriction._end, test_restriction._end_match)
+    test_restrictions = list(map(
+        lambda restriction: client_restriction(**restriction),
+        raw_restrictions))
+
+    tt = {True: '\033[32mTrue\033[0m', False: '\033[31mFalse\033[0m'}
+
+    for event in events:
+        print("#" * 80)
+        print(event)
+        for test_restriction in test_restrictions:
+            print()
+            print("?", test_restriction)
+            print('=', tt[test_restriction.match(event)])
+        print()
 
 
 if __name__ == '__main__':

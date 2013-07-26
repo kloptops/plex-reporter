@@ -28,6 +28,7 @@ THE SOFTWARE.
 """
 
 import requests
+import datetime
 from plex.util import (
     PlexException, get_content_rating, RATING_UNKNOWN, get_logger)
 from bs4 import BeautifulSoup
@@ -183,6 +184,9 @@ class PlexMediaVideoObject(PlexMediaLibraryObject):
         self.title       = ''
         self.summary     = ''
 
+        self.added_at    = datetime.datetime(1900, 1, 1)
+        self.aired_at    = datetime.datetime(1900, 1, 1, 12, 00)
+
         self.media = {}
         self.parts = []
 
@@ -190,7 +194,7 @@ class PlexMediaVideoObject(PlexMediaLibraryObject):
         if soup is None:
             soup = BeautifulSoup(xml)
         super(PlexMediaVideoObject, self)._parse_xml(xml, soup)
-        video_tag = soup.find('video')
+        video_tag = soup.find('video', ratingkey=str(self.key))
 
         self.rating      = video_tag.get('contentrating', '')
         self.rating_code = get_content_rating(self.rating)
@@ -199,6 +203,12 @@ class PlexMediaVideoObject(PlexMediaLibraryObject):
         self.year        = video_tag.get('year', '1900')
         self.title       = video_tag.get('title', '')
         self.summary     = video_tag.get('summary', '')
+
+        self.added_at    = datetime.datetime.fromtimestamp(
+            float(video_tag.get('addedat', 0)))
+        self.aired_at    = datetime.datetime(*map(
+            int,
+            video_tag.get('originallyavailableat', '1900-1-1').split('-')))
 
         ## TODO: Make this better, but I haven't really needed this yet,
         ## so I haven't decided how it needs to be laid out.
@@ -229,24 +239,36 @@ class PlexMediaEpisodeObject(PlexMediaVideoObject):
         self.season_key   = 0
         self.season       = 0
         self.episode      = 0
+        self.genres       = None
 
     def _parse_xml(self, xml, soup=None):
         if soup is None:
             soup = BeautifulSoup(xml)
         super(PlexMediaEpisodeObject, self)._parse_xml(xml, soup)
-        video_tag = soup.find('video')
+        video_tag = soup.find('video', ratingkey=str(self.key))
 
-        self.series_key   = video_tag.get('grandparentratingkey', 0)
+        self.series_key   = int(video_tag.get('grandparentratingkey', 0))
         self.series_title = video_tag.get('grandparenttitle', 'Unknown')
-        self.season_key   = video_tag.get('parentratingkey', 0)
-        self.season       = video_tag.get('parentindex', 0)
-        self.episode      = video_tag.get('index', 0)
+        self.season_key   = int(video_tag.get('parentratingkey', 0))
+        self.season       = int(video_tag.get('parentindex', 0))
+        self.episode      = int(video_tag.get('index', 0))
+
+        series_tag = soup.find('directory', ratingkey=str(self.series_key))
+        if series_tag is not None:
+            self.genres = []
+            for genre_tag in series_tag.find_all('genre'):
+                self.genres.append(genre_tag['tag'])
 
     def __repr__(self):
         return (
             '<{us.__class__.__name__}'
-            ' key={us.key}, series_title={us.series_title!r},'
-            ' season={us.season}, episode={us.episode},'
+            ' key={us.key},'
+            ' rating={us.rating!r},'
+            ' rating_code={us.rating_code},'
+            ' genres={us.genres},'
+            ' series_title={us.series_title!r},'
+            ' season={us.season},'
+            ' episode={us.episode},'
             ' title={us.title!r}>').format(
                 us=self)
 
@@ -263,10 +285,18 @@ class PlexMediaMovieObject(PlexMediaVideoObject):
             soup = BeautifulSoup(xml)
         super(PlexMediaMovieObject, self)._parse_xml(xml, soup)
 
+        series_tag = soup.find('video', ratingkey=str(self.key))
+        if series_tag is not None:
+            for genre_tag in series_tag.find_all('genre'):
+                self.genres.append(genre_tag['tag'])
+
     def __repr__(self):
         return (
             '<{us.__class__.__name__}'
-            ' key={us.key}, title={us.title!r}'
+            ' key={us.key},'
+            ' rating={us.rating!r},'
+            ' rating_code={us.rating_code},'
+            ' title={us.title!r}'
             ' year={us.year}>').format(
                 us=self)
 
@@ -285,7 +315,7 @@ def plex_media_object(conn, key, xml=None, soup=None):
             soup = BeautifulSoup(xml)
         container_tag = soup.find(ratingkey=True)
         if container_tag is None:
-            raise PlexMediaException(
+            raise TypeError(
                 'Invalid xml passed, ratingKey="key" missing!')
         key = int(container_tag.get('ratingkey', 0))
 
@@ -298,7 +328,7 @@ def plex_media_object(conn, key, xml=None, soup=None):
     if soup is None:
         soup = BeautifulSoup(xml)
 
-    container_tag = soup.find(ratingkey=True)
+    container_tag = soup.find(ratingkey=str(key))
     if container_tag.name == 'video':
         video_type = container_tag.get('type', None)
         if video_type == 'episode':
@@ -317,6 +347,8 @@ def plex_media_object(conn, key, xml=None, soup=None):
 def plex_media_object_batch(conn, keys, batch_size=20):
     """
     Batch fetch metadata from media server. :)
+    Can be used with episodes to get more info by passing the series_key as an
+    object to get.
     """
     if not isinstance(keys, (list, tuple)):
         raise TypeError("Required argument 'keys' must be a list or tuple.")
@@ -345,10 +377,14 @@ def plex_media_object_batch(conn, keys, batch_size=20):
             if container_key in results:
                 continue
 
-            ## TODO: Extract the soup object, suitable for passing down
-            ##   to plex_media_object
-            results[container_key] = plex_media_object(
-                conn, int(container_key), str(container_tag))
+            try:
+                ## --TODO--: Extract the soup object, suitable for passing down
+                ##   to plex_media_object
+                ## FIX: Just send it all, the media objects are smarter...
+                results[container_key] = plex_media_object(
+                    conn, int(container_key), xml, soup)
+            except PlexMediaException:
+                pass
 
     logger.debug("Fetched {0} media objects".format(len(results)))
 
